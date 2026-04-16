@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Transfer Encrypt Offline Demo</title>
+</head>
+<body>
+  <button id="sendJson">发送 JSON</button>
+  <script src="../vendor/sm-crypto.min.js"></script>
+  <script src="../transfer-encrypt.js"></script>
+  <script>
+    TransferEncryptRegisterSmCrypto(window.smCrypto);
+
+    const client = new TransferEncryptClient({
+      baseUrl: 'http://localhost:8080',
+      publicKey: '请替换成服务端SM2公钥'
+    });
+
+    document.getElementById('sendJson').addEventListener('click', async function () {
+      try {
+        const result = await client.request({
+          url: '/api/json',
+          method: 'POST',
+          json: { name: 'offline-user' }
+        });
+        console.log('response', result);
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  </script>
+</body>
+</html>

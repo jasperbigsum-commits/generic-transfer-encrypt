@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Transfer Encrypt Layui Multiple Upload Demo</title>
+  <link rel="stylesheet" href="./vendor/layui/layui.css">
+</head>
+<body style="padding: 24px;">
+  <div class="layui-card">
+    <div class="layui-card-header">Layui Upload 多文件 + MD5 完整性校验</div>
+    <div class="layui-card-body">
+      <button type="button" class="layui-btn" id="pickFiles">选择多个文件</button>
+      <button type="button" class="layui-btn layui-btn-normal" id="startMultiUpload">开始上传</button>
+      <div id="multiFileInfo" style="margin-top: 12px; color: #666;"></div>
+    </div>
+  </div>
+
+  <script src="./vendor/layui/layui.js"></script>
+  <script src="../vendor/sm-crypto.min.js"></script>
+  <script src="../transfer-encrypt.js"></script>
+  <script>
+    TransferEncryptRegisterSmCrypto(window.smCrypto);
+
+    layui.use(['upload', 'layer'], function () {
+      var layer = layui.layer;
+      var upload = layui.upload;
+      var selectedFiles = [];
+
+      var adapter = TransferEncryptCreateLayuiAdapter({
+        layui: layui,
+        baseUrl: 'http://localhost:8080',
+        publicKey: '请替换成服务端SM2公钥'
+      });
+
+      upload.render({
+        elem: '#pickFiles',
+        auto: false,
+        multiple: true,
+        choose: function (obj) {
+          selectedFiles = [];
+          var fileNames = [];
+          obj.preview(function (index, file) {
+            selectedFiles.push(file);
+            fileNames.push(file.name + ' (' + file.size + ' 字节)');
+            document.getElementById('multiFileInfo').innerHTML =
+              '已选择文件：<br>' + fileNames.join('<br>');
+          });
+        }
+      });
+
+      document.getElementById('startMultiUpload').addEventListener('click', async function () {
+        if (!selectedFiles.length) {
+          layer.msg('请先选择文件', { icon: 0 });
+          return;
+        }
+        try {
+          var response = await adapter.uploadMany(selectedFiles, {
+            url: '/api/upload/multi',
+            fieldName: 'files',
+            data: {
+              bizType: 'layui-upload-multi-demo'
+            },
+            successMessage: '多文件上传完成'
+          });
+          layer.alert(JSON.stringify(response), { title: '上传响应' });
+        } catch (error) {
+          console.error(error);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

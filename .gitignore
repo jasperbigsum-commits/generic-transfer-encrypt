@@ -1,0 +1,7 @@
+/.idea/
+/spring2-plugin/.m2repo/
+/spring2-plugin/.mvn/
+/*.iml
+/spring2-plugin/target/
+/vanilla-js-plugin/build/
+/vue3-plugin/build/
