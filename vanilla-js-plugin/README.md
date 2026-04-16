@@ -5,16 +5,16 @@
 SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 仓库已内置本地第三方文件：
 
-- [vendor/sm-crypto.min.js](.\example\vendor\sm-crypto.min.js)
-- [vendor/LICENCE_MIT.sm-crypto](.\example\vendor\LICENCE_MIT.sm-crypto)
+- [vendor/sm-crypto.min.js](./example/vendor\sm-crypto.min.js)
+- [vendor/LICENCE_MIT.sm-crypto](./example/vendor\LICENCE_MIT.sm-crypto)
 
 当前 `vanilla-js-plugin` 目录只保留纯静态文件，不依赖 `npm`、`node_modules`、构建工具。
 
 如果你的页面本身使用 `layui`，可以直接接入：
 
-- [layui-example.html](.\example\layui-example.html)
-- [layui-upload-example.html](.\example\layui-upload-example.html)
-- [layui-upload-multiple-example.html](.\example\layui-upload-multiple-example.html)
+- [layui-example.html](./example/layui-example.html)
+- [layui-upload-example.html](./example/layui-upload-example.html)
+- [layui-upload-multiple-example.html](./example/layui-upload-multiple-example.html)
 
 ## 离线接入方式
 
@@ -106,7 +106,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 
 如果你们页面使用 `layui.upload` 选择文件，但上传仍希望走当前插件的 `FormData + 自动 MD5` 链路，可以直接参考：
 
-- [layui-upload-example.html](.\example\layui-upload-example.html)
+- [layui-upload-example.html](./example/layui-upload-example.html)
 
 核心方式是：
 
@@ -143,7 +143,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 
 如果页面需要一次上传多个文件，直接参考：
 
-- [layui-upload-multiple-example.html](.\example\layui-upload-multiple-example.html)
+- [layui-upload-multiple-example.html](./example/layui-upload-multiple-example.html)
 
 核心方式是：
 
@@ -256,4 +256,4 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 - SDK 会自动为每个文件字段追加 `__md5_<fieldName>`。
 - 同字段多文件时，SDK 会自动追加 `__md5_<fieldName>__<index>`。
 - SDK 不依赖外网 CDN；仓库已提供一份本地可用 `sm-crypto` 离线文件。
-- 离线示例页面见 [offline-example.html](.\example\offline-example.html)。
+- 离线示例页面见 [offline-example.html](./example/offline-example.html)。

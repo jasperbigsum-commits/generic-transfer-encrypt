@@ -1,0 +1,24 @@
+name: generic_transfer_encrypt_flutter
+description: Flutter client for the generic transfer encryption protocol used by this repository.
+version: 1.0.0
+homepage: https://github.com/jasperbigsum-commits/generic-transfer-encrypt
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.7
+  dart_sm: ^0.1.5
+  http: ^1.6.0
+  http_parser: ^4.1.2
+  mime: ^2.0.0
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:

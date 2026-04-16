@@ -109,3 +109,11 @@ SDK 依赖浏览器侧 `sm-crypto` 全局对象，示例见：
 - `../vanilla-js-plugin/vendor/sm-crypto.min.js`
 
 直接通过本地 `<script>` 或内部构建产物注入即可。
+
+Flutter 客户端位于：
+
+- `../flutter-plugin/README.md`
+
+详细接入文档见：
+
+- `../flutter-plugin/docs/flutter-plugin-guide.md`
