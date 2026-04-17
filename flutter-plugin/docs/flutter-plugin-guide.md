@@ -83,6 +83,15 @@ final client = TransferEncryptClient(
 - `multipartMd5FieldPrefix`: 默认 `__md5_`
 - `httpClient`: 可传入自定义 `package:http` client
 
+如果你的工程以 `dio` 为标准 HTTP 栈，也可以改用：
+
+```dart
+final adapter = TransferEncryptDioAdapter(
+  dio: Dio(BaseOptions(baseUrl: 'http://localhost:8080')),
+  publicKey: '服务端 SM2 公钥',
+);
+```
+
 建议：
 
 - 在应用层做成单例
@@ -144,6 +153,26 @@ final result = await client.request(
 - `json` 会走加密 `application/json`
 - 三者不要同时传，避免语义冲突
 
+### 5.5 Dio 接入
+
+```dart
+final adapter = TransferEncryptDioAdapter(
+  dio: Dio(BaseOptions(baseUrl: 'http://localhost:8080')),
+  publicKey: '服务端 SM2 公钥',
+);
+
+final result = await adapter.request(
+  url: '/api/order/create',
+  method: 'POST',
+  json: <String, dynamic>{'orderNo': 'SO-10001'},
+);
+```
+
+适合：
+
+- 你已经统一使用 `dio`
+- 你希望复用现有 `dio` 拦截器和基础配置
+
 ## 6. 上传文件
 
 ### 6.1 单文件
@@ -180,6 +209,21 @@ final result = await client.upload(
 );
 ```
 
+若使用 `dio`：
+
+```dart
+final result = await adapter.upload(
+  url: '/api/upload/multi',
+  files: <TransferEncryptFile>[
+    TransferEncryptFile(
+      fieldName: 'files',
+      filename: 'a.txt',
+      bytes: utf8.encode('A'),
+    ),
+  ],
+);
+```
+
 ### 6.3 文本转文件
 
 ```dart
@@ -202,6 +246,16 @@ final binary = await client.download('/api/export');
 
 ```dart
 final binary = await client.requestBinary(
+  url: '/api/export',
+  method: 'POST',
+  json: <String, dynamic>{'bizId': 1001},
+);
+```
+
+若使用 `dio`：
+
+```dart
+final binary = await adapter.requestBinary(
   url: '/api/export',
   method: 'POST',
   json: <String, dynamic>{'bizId': 1001},
@@ -276,7 +330,7 @@ class OrderGateway {
 ## 11. 已知边界
 
 - 当前实现基于 `package:http`
-- 不内置 `dio` 适配器
+- 已内置 `dio` 适配器
 - 不负责公钥分发
 - 不替代 HTTPS
 - 文件内容默认不做流式加密

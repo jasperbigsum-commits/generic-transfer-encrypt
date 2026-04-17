@@ -1,0 +1,21 @@
+server:
+  port: 8081
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+transfer:
+  encrypt:
+    enabled: true
+    feign-enabled: true
+    private-key: aca06cdcdf45f829f84fccdc868dca44010f22c0f4f2cb1fc40f3ea881cd12b0
+    public-key: 04a12ea1f751e20280cbabed8dda842c52dcf28f470f6ebc6c1e4ffacaa0eff6407a864940a2d5354783d04cad15f7cb87c3f652ca466cf6201e31f0a5299b057b
+    filter-order: -100
+    include-path-regex:
+      - ^/api/.*$
+      - ^/downstream/.*$
+    feign-public-keys:
+      localhost: 04a12ea1f751e20280cbabed8dda842c52dcf28f470f6ebc6c1e4ffacaa0eff6407a864940a2d5354783d04cad15f7cb87c3f652ca466cf6201e31f0a5299b057b

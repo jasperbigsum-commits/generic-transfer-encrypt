@@ -7,10 +7,7 @@
 - `spring2-plugin`: Spring Boot 2 / Spring MVC 服务端插件
 - `vanilla-js-plugin`: 原生 JS 浏览器端 SDK
 - `flutter-plugin`: Flutter 客户端 SDK
-
-当前占位模块：
-
-- `vue3-plugin`: 目录已预留，尚未补完整实现
+- `vue3-plugin`: Vue 3 客户端 SDK
 
 ## 核心能力
 
@@ -22,20 +19,16 @@
 
 ## 协议概览
 
-请求信封字段：
+外层传输字段：
 
-- `algorithm`
+- `transferPayload`
+- `originalContentType`
+
+`transferPayload` 内部载荷字段：
+
 - `encryptedKey`
 - `encryptedData`
 - `contentMd5`
-- `originalContentType`
-- `timestamp`
-
-响应信封字段：
-
-- `encryptedData`
-- `contentMd5`
-- `originalContentType`
 - `timestamp`
 
 文件完整性字段：
@@ -64,12 +57,20 @@ generic-transfer-encrypt/
 - [spring2-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\README.md)
 - [vanilla-js-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\vanilla-js-plugin\README.md)
 - [flutter-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\README.md)
+- [vue3-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\README.md)
+- [e2e-demo/README.md](E:\IdeaProject\generic-transfer-encrypt\e2e-demo\README.md)
 
 Flutter 补充文档：
 
 - [flutter-plugin/docs/flutter-plugin-guide.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\docs\flutter-plugin-guide.md)
 - [flutter-plugin/docs/flutter-plugin-api.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\docs\flutter-plugin-api.md)
 - [flutter-plugin/docs/flutter-plugin-faq.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\docs\flutter-plugin-faq.md)
+
+Vue 3 补充文档：
+
+- [vue3-plugin/docs/vue3-plugin-guide.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\docs\vue3-plugin-guide.md)
+- [vue3-plugin/docs/vue3-plugin-api.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\docs\vue3-plugin-api.md)
+- [vue3-plugin/docs/vue3-plugin-faq.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\docs\vue3-plugin-faq.md)
 
 ## 快速开始
 
@@ -90,7 +91,12 @@ Flutter 补充文档：
 
 ### 3. Flutter 端
 
-Flutter 端可直接以 path 方式引用：
+Flutter 端可直接以 path 方式引用，当前同时支持：
+
+- 基于 `package:http` 的客户端
+- 基于 `dio` 的适配层
+
+依赖方式：
 
 ```yaml
 dependencies:
@@ -101,6 +107,34 @@ dependencies:
 完整接入见：
 
 - [flutter-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\README.md)
+
+### 4. Vue 3 端
+
+Vue 3 端支持：
+
+- 纯协议 core client
+- `app.use(...)` 插件注入
+- `provide/inject`
+- `useTransferEncryptRequest(...)` composable
+
+完整接入见：
+
+- [vue3-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\README.md)
+
+### 5. 端到端 Demo
+
+仓库已补一个本地联调示例应用：
+
+- [e2e-demo/README.md](E:\IdeaProject\generic-transfer-encrypt\e2e-demo\README.md)
+
+可直接启动演示服务并打开浏览器页面，联调：
+
+- JSON
+- form
+- query
+- 文件上传
+- 二进制下载
+- OpenFeign 端到端链路
 
 ## 本地测试
 
@@ -134,14 +168,18 @@ flutter test
 
 - [scripts/run-local-integration-tests.ps1](E:\IdeaProject\generic-transfer-encrypt\scripts\run-local-integration-tests.ps1)
 - [scripts/run-local-integration-tests.cmd](E:\IdeaProject\generic-transfer-encrypt\scripts\run-local-integration-tests.cmd)
+- [scripts/run-e2e-demo.ps1](E:\IdeaProject\generic-transfer-encrypt\scripts\run-e2e-demo.ps1)
+- [scripts/run-e2e-demo.cmd](E:\IdeaProject\generic-transfer-encrypt\scripts\run-e2e-demo.cmd)
 
 默认会尝试执行：
 
 1. `spring2-plugin`: `mvn -Dmaven.repo.local=.m2repo test`
 2. `vanilla-js-plugin`: `node tests/transfer-encrypt.native.test.js`
-3. `flutter-plugin`: `flutter pub get`
-4. `flutter-plugin`: `flutter test`
-5. `flutter-plugin/example`: `flutter pub get`
+3. `vue3-plugin`: `node tests/transfer-encrypt-vue3.native.test.mjs`
+4. `e2e-demo/server`: `mvn -Dmaven.repo.local=..\..\spring2-plugin\.m2repo test`
+5. `flutter-plugin`: `flutter pub get`
+6. `flutter-plugin`: `flutter test`
+7. `flutter-plugin/example`: `flutter pub get`
 
 执行方式：
 
@@ -159,6 +197,8 @@ flutter test
 
 - `-SkipSpring`
 - `-SkipVanillaJs`
+- `-SkipVue3`
+- `-SkipE2EDemo`
 - `-SkipFlutter`
 - `-IncludeFlutterAnalyze`
 - `-AllowMissingTools`
@@ -197,11 +237,9 @@ scripts\run-local-integration-tests.cmd
 
 - Spring Boot 2 服务端传输加密插件
 - 原生 JS 客户端 SDK 和本地测试
-- Flutter 客户端 SDK、示例、文档、测试
+- Flutter 客户端 SDK、示例、文档、测试、`dio` 适配层
+- Vue 3 客户端 SDK、示例、文档、原生测试
+- 本地端到端联调示例应用（含 OpenFeign 端到端链路）
 - 仓库级本地集成测试脚本
 
 待继续推进：
-
-- `vue3-plugin`
-- 端到端联调示例应用
-- `dio` 适配层

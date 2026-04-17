@@ -5,6 +5,7 @@
 SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 仓库已内置本地第三方文件：
 
+- [vendor/md5.js](./vendor/md5.js)
 - [vendor/sm-crypto.min.js](./example/vendor\sm-crypto.min.js)
 - [vendor/LICENCE_MIT.sm-crypto](./example/vendor\LICENCE_MIT.sm-crypto)
 
@@ -13,6 +14,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 如果你的页面本身使用 `layui`，可以直接接入：
 
 - [layui-example.html](./example/layui-example.html)
+- [layui-table-example.html](./example/layui-table-example.html)
 - [layui-upload-example.html](./example/layui-upload-example.html)
 - [layui-upload-multiple-example.html](./example/layui-upload-multiple-example.html)
 
@@ -25,11 +27,13 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 直接使用仓库内置的本地文件，或复制到你们自己的静态资源目录：
 
 - `./vendor/sm-crypto.min.js`
+- `./vendor/md5.js`
 - `./transfer-encrypt.js`
 
 页面只引用本地文件：
 
 ```html
+<script src="./vendor/md5.js"></script>
 <script src="./vendor/sm-crypto.min.js"></script>
 <script src="./transfer-encrypt.js"></script>
 <script>
@@ -57,12 +61,19 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 - `sm4.encrypt(text, key, options)`
 - `sm4.decrypt(cipherText, key, options)`
 
+公钥格式说明：
+
+- 如果你传入的是 `128` 位十六进制裸点公钥，SDK 会自动补成 `04 + X + Y`
+- 如果你传入的是已经带 `04` 的 `130` 位未压缩公钥点，SDK 会直接使用
+- 如果你传入的是 `DER/X509/PEM` 公钥，SDK 会直接报明确错误，不会再出现底层难定位异常
+
 ## Layui 直连接入
 
 如果页面已经有 `layui`，可以直接使用适配器：
 
 ```html
-<script src="./vendor/layui/layui.js"></script>
+<script src="./vendor/layui/dist/layui.js"></script>
+<script src="./vendor/md5.js"></script>
 <script src="./vendor/sm-crypto.min.js"></script>
 <script src="./transfer-encrypt.js"></script>
 <script>
@@ -93,6 +104,8 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 - `adapter.json(url, data, options)`
 - `adapter.form(url, data, options)`
 - `adapter.get(url, params, options)`
+- `adapter.installTableBridge()`
+- `adapter.renderForm(filter, config)`
 - `adapter.upload(file, options)`
 - `adapter.uploadMany(files, options)`
 - `adapter.bindFormSubmit(filter, config)`
@@ -101,6 +114,92 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 
 - 若存在 `layui.layer`，默认会展示加载框与错误提示。
 - 适配器仍然复用同一个 `TransferEncryptClient`，协议完全一致。
+
+## Layui Table 自动加密桥接
+
+如果你们页面直接使用 `layui.table.render({ url: ... })` 或 `table.reload(...)`，可以先安装桥接器：
+
+```html
+<script>
+  layui.use(['table'], function () {
+    var adapter = TransferEncryptCreateLayuiAdapter({
+      layui: layui,
+      baseUrl: 'http://localhost:8080',
+      publicKey: '服务端SM2公钥'
+    });
+
+    adapter.installTableBridge();
+
+    layui.table.render({
+      elem: '#demo-table',
+      url: '/api/table',
+      method: 'GET',
+      where: { keyword: 'alice' },
+      cols: [[
+        { field: 'id', title: 'ID' },
+        { field: 'name', title: '姓名' }
+      ]]
+    });
+  });
+</script>
+```
+
+效果：
+
+- 保留原来的 `table.render({ url: ... })` 写法
+- 自动把 table 的 URL 请求改成当前插件协议
+- `table.reload(...)`、`table.reloadData(...)` 也会自动带上加密标记
+- 返回给 table 的仍然是解密后的普通 JSON 结构
+
+说明：
+
+- 默认只对带 `url` 的 table 请求生效
+- 若某个 table 不想走加密，可显式加 `transferEncrypt: false`
+- `GET/DELETE` 默认按 query 加密
+- `POST` 默认按 form 加密；若接口要求 JSON，可加 `encryptBodyType: 'json'`
+
+案例页面：
+
+- [layui-table-example.html](./example/layui-table-example.html)
+
+## Layui Form 自动回填渲染
+
+如果你们需要“先请求 URL，再把返回结果自动回填到 layui 表单并执行 `form.render()`”，可以直接用：
+
+```html
+<script>
+  layui.use(['form'], function () {
+    var adapter = TransferEncryptCreateLayuiAdapter({
+      layui: layui,
+      baseUrl: 'http://localhost:8080',
+      publicKey: '服务端SM2公钥'
+    });
+
+    adapter.renderForm('profile-form', {
+      url: '/api/profile',
+      method: 'GET',
+      params: { userId: 1 },
+      type: null
+    });
+  });
+</script>
+```
+
+效果：
+
+1. 自动按当前协议发起加密请求
+2. 调用 `layui.form.val(filter, data)` 回填
+3. 再调用 `layui.form.render(type)` 重新渲染表单控件
+
+可选配置：
+
+- `params`
+- `form`
+- `json`
+- `headers`
+- `type`
+- `mapResponse(response)`：若接口返回结构需要二次提取
+- `onSuccess(formData, response)`
 
 ## Layui Upload 案例
 

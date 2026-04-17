@@ -1,0 +1,22 @@
+{
+  "name": "generic-transfer-encrypt-vue3",
+  "version": "1.0.0",
+  "description": "Vue 3 client for the generic transfer encryption protocol used by this repository.",
+  "type": "module",
+  "scripts": {
+    "test": "node ./tests/transfer-encrypt-vue3.native.test.mjs"
+  },
+  "exports": {
+    ".": "./transfer-encrypt-vue3.js",
+    "./core": "./transfer-encrypt-vue3-core.js"
+  },
+  "files": [
+    "transfer-encrypt-vue3.js",
+    "transfer-encrypt-vue3-core.js",
+    "README.md",
+    "example"
+  ],
+  "peerDependencies": {
+    "vue": "^3.4.0"
+  }
+}

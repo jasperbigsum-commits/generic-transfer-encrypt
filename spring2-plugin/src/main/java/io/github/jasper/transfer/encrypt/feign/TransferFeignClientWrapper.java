@@ -88,7 +88,8 @@ public class TransferFeignClientWrapper implements Client {
             final String sm4Key = envelopeCodec.randomSm4Key();
             final TransferEnvelope envelope = envelopeCodec.createRequestEnvelope(rawQuery,
                     MediaType.APPLICATION_FORM_URLENCODED_VALUE, sm4Key, publicKey);
-            final String encryptedQuery = buildEnvelopeQuery(envelope);
+            final String encryptedQuery = buildCompactEnvelopeQuery(envelope,
+                    MediaType.APPLICATION_FORM_URLENCODED_VALUE);
             return new RequestExecution(rebuildRequest(request, replaceQuery(request.url(), encryptedQuery),
                     null, charset, removeContentLength(request.headers())), sm4Key);
         }
@@ -102,7 +103,7 @@ public class TransferFeignClientWrapper implements Client {
             final String sm4Key = envelopeCodec.randomSm4Key();
             final TransferEnvelope envelope = envelopeCodec.createRequestEnvelope(plaintext, contentType, sm4Key,
                     publicKey);
-            final byte[] encryptedBody = buildEnvelopeQuery(envelope).getBytes(StandardCharsets.UTF_8);
+            final byte[] encryptedBody = buildCompactEnvelopeQuery(envelope, contentType).getBytes(StandardCharsets.UTF_8);
             return new RequestExecution(rebuildRequest(request, request.url(), encryptedBody, StandardCharsets.UTF_8,
                     removeContentLength(request.headers())), sm4Key);
         }
@@ -110,7 +111,11 @@ public class TransferFeignClientWrapper implements Client {
             final String sm4Key = envelopeCodec.randomSm4Key();
             final TransferEnvelope envelope = envelopeCodec.createRequestEnvelope(plaintext, contentType, sm4Key,
                     publicKey);
-            final byte[] encryptedBody = TransferJsonUtils.writeBytes(objectMapper, envelope);
+            final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+            wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                    TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
+            wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, contentType);
+            final byte[] encryptedBody = TransferJsonUtils.writeBytes(objectMapper, wrapper);
             return new RequestExecution(rebuildRequest(request, request.url(), encryptedBody, StandardCharsets.UTF_8,
                     removeContentLength(request.headers())), sm4Key);
         }
@@ -128,26 +133,36 @@ public class TransferFeignClientWrapper implements Client {
         if (responseBody.length == 0) {
             return rebuildResponse(response, responseBody, response.headers());
         }
+        final String payload = new String(responseBody, StandardCharsets.UTF_8);
+        final boolean encryptedEnvelope = sm4Key != null && TransferWebUtils.isTransferEnvelopeJson(payload);
+        if (encryptedEnvelope) {
+            final Map<?, ?> bodyMap = TransferJsonUtils.readValue(objectMapper, payload, Map.class);
+            final Object compactPayload = bodyMap.get(TransferConstants.FIELD_TRANSFER_PAYLOAD);
+            if (!StringUtils.hasText(compactPayload == null ? null : String.valueOf(compactPayload))) {
+                return rebuildResponse(response, responseBody, response.headers());
+            }
+            final TransferEnvelope envelope =
+                    TransferJsonUtils.decodeTransportPayload(objectMapper, String.valueOf(compactPayload));
+            final byte[] decryptedBody = envelopeCodec.decodeResponseEnvelope(envelope, sm4Key);
+            final Object originalContentType = bodyMap.get(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE);
+            final Map<String, Collection<String>> headers = new LinkedHashMap<>(response.headers());
+            headers.put("Content-Type", singletonCollection(
+                    StringUtils.hasText(originalContentType == null ? null : String.valueOf(originalContentType))
+                            ? String.valueOf(originalContentType)
+                            : MediaType.APPLICATION_JSON_VALUE));
+            headers.remove(TransferConstants.HEADER_TRANSFER_ENCRYPTED);
+            headers.remove("Content-Length");
+            headers.remove(TransferConstants.HEADER_CONTENT_MD5);
+            return rebuildResponse(response, decryptedBody, headers);
+        }
         final String contentMd5 = firstHeader(response.headers(), TransferConstants.HEADER_CONTENT_MD5);
         if (md5Enabled && StringUtils.hasText(contentMd5)) {
             envelopeCodec.verifyMd5(responseBody, contentMd5);
         }
-        if (sm4Key == null) {
+        if (sm4Key == null || !TransferWebUtils.isTransferEnvelopeJson(payload)) {
             return rebuildResponse(response, responseBody, response.headers());
         }
-        final String payload = new String(responseBody, StandardCharsets.UTF_8);
-        if (!TransferWebUtils.isTransferEnvelopeJson(payload)) {
-            return rebuildResponse(response, responseBody, response.headers());
-        }
-        final TransferEnvelope envelope = TransferJsonUtils.readValue(objectMapper, payload, TransferEnvelope.class);
-        final byte[] decryptedBody = envelopeCodec.decodeResponseEnvelope(envelope, sm4Key);
-        final Map<String, Collection<String>> headers = new LinkedHashMap<String, Collection<String>>(response.headers());
-        headers.put("Content-Type", singletonCollection(
-                StringUtils.hasText(envelope.getOriginalContentType()) ? envelope.getOriginalContentType()
-                        : MediaType.APPLICATION_JSON_VALUE));
-        headers.remove(TransferConstants.HEADER_TRANSFER_ENCRYPTED);
-        headers.remove("Content-Length");
-        return rebuildResponse(response, decryptedBody, headers);
+        return rebuildResponse(response, responseBody, response.headers());
     }
 
     private Response rebuildResponse(final Response response, final byte[] body,
@@ -171,11 +186,13 @@ public class TransferFeignClientWrapper implements Client {
         return headers;
     }
 
-    private String buildEnvelopeQuery(final TransferEnvelope envelope) {
-        final Map<String, List<String>> query = new LinkedHashMap<String, List<String>>();
-        query.put(TransferConstants.FIELD_ENCRYPTED_KEY, singletonList(envelope.getEncryptedKey()));
-        query.put(TransferConstants.FIELD_ENCRYPTED_DATA, singletonList(envelope.getEncryptedData()));
-        query.put(TransferConstants.FIELD_CONTENT_MD5, singletonList(envelope.getContentMd5()));
+    private String buildCompactEnvelopeQuery(final TransferEnvelope envelope, final String originalContentType) {
+        final Map<String, List<String>> query = new LinkedHashMap<>();
+        query.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                singletonList(TransferJsonUtils.encodeTransportPayload(objectMapper, envelope)));
+        query.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE,
+                singletonList(StringUtils.hasText(originalContentType) ? originalContentType
+                        : MediaType.APPLICATION_FORM_URLENCODED_VALUE));
         return TransferWebUtils.toQueryString(query);
     }
 

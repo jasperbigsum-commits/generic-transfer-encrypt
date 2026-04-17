@@ -3,8 +3,12 @@
 /spring2-plugin/.mvn/
 /*.iml
 /spring2-plugin/target/
+/vanilla-js-plugin/node_modules/
 /vanilla-js-plugin/build/
 /vue3-plugin/build/
+/vue3-plugin/node_modules/
+/vue3-plugin/example/node_modules/
+/e2e-demo/server/target/
 /flutter-plugin/.dart_tool/
 /flutter-plugin/build/
 /flutter-plugin/pubspec.lock
@@ -12,3 +16,4 @@
 /flutter-plugin/example/build/
 /flutter-plugin/example/pubspec.lock
 /flutter-plugin/example/.flutter-plugins-dependencies
+*.log

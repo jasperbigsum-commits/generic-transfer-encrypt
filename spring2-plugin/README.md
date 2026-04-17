@@ -5,6 +5,7 @@
 详细架构图与请求时序见：
 
 - [docs/transport-encryption-architecture.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\docs\transport-encryption-architecture.md)
+- [docs/filter-ordering-guide.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\docs\filter-ordering-guide.md)
 
 ## 能力范围
 
@@ -17,18 +18,17 @@
 
 ## 协议
 
-请求信封字段：
+外层传输字段：
 
-- `encryptedKey`: 前端用服务端 `SM2 public key` 加密后的随机 `SM4 key`
+- `transferPayload`
+- `originalContentType`
+
+`transferPayload` 内部载荷字段：
+
+- `encryptedKey`: 请求时前端用服务端 `SM2 public key` 加密后的随机 `SM4 key`
 - `encryptedData`: 用该 `SM4 key` 加密后的明文
 - `contentMd5`: 明文 `MD5`
-
-响应信封字段：
-
-- `encryptedData`
-- `contentMd5`
-- `originalContentType`
-- `timestamp`
+- `timestamp`: 发送时间戳
 
 文件传输：
 
@@ -60,6 +60,7 @@ transfer:
     exclude-path-regex:
       - ^/api/public/.*
     multipart-md5-field-prefix: __md5_
+    filter-order: -10
     feign-public-keys:
       service-b: 下游服务B的SM2公钥
       service-c.internal: 下游服务C的SM2公钥
@@ -93,6 +94,29 @@ public interface OrderServiceClient {
 - 未标记 `@TransferEncryptedFeignClient` 的 Feign 接口保持原样，不会被误包。
 
 如果你有自定义 `Client`，确保最终 Bean 仍然暴露为 `feign.Client`，这样包装器才能接管。
+
+## FilterRegistrationBean 冲突说明
+
+如果业务侧自己注册了 `FilterRegistrationBean<Filter>`，旧版本插件可能因为自动配置退让条件过宽，导致传输层加解密 filter 没有注册。
+
+当前版本已修复：
+
+- 插件改为按具体 `TransferEncryptionFilter` 类型判断是否缺失
+- 注册 Bean 改为独立的 `transferEncryptionFilterRegistrationBean`
+- 不会再因为业务侧存在其他 `FilterRegistrationBean` 就整体失效
+
+如果仍然存在顺序冲突，例如业务 filter 在我们之前就消费了请求体、改写了请求或提前返回，可以通过下面配置把传输层 filter 提前：
+
+```yaml
+transfer:
+  encrypt:
+    filter-order: -100
+```
+
+建议：
+
+- 让传输层加解密 filter 先于会读取请求体的业务 filter 执行
+- 若业务侧确实需要自定义注册本插件 filter，可直接覆盖 `transferEncryptionFilterRegistrationBean`
 
 ## 前端
 

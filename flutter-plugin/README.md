@@ -20,20 +20,16 @@
 
 ## 协议对齐
 
-请求信封字段：
+外层传输字段：
 
-- `algorithm`
+- `transferPayload`
+- `originalContentType`
+
+`transferPayload` 内部载荷字段：
+
 - `encryptedKey`
 - `encryptedData`
 - `contentMd5`
-- `originalContentType`
-- `timestamp`
-
-响应信封字段：
-
-- `encryptedData`
-- `contentMd5`
-- `originalContentType`
 - `timestamp`
 
 文件上传完整性字段：
@@ -67,6 +63,8 @@ final client = TransferEncryptClient(
 - 在应用基础设施层初始化成单例
 - 在业务网关层封装接口，不要在页面直接拼协议
 - `Authorization`、租户头、traceId 在业务层统一注入
+
+如果你的项目统一使用 `dio`，也可以直接使用 `TransferEncryptDioAdapter`，不需要放弃现有网络层。
 
 ## JSON 请求
 
@@ -167,6 +165,27 @@ final binary = await client.requestBinary(
   json: <String, dynamic>{'bizId': 1001},
 );
 ```
+
+## Dio 接入
+
+```dart
+final dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080'));
+
+final adapter = TransferEncryptDioAdapter(
+  dio: dio,
+  publicKey: '服务端 SM2 公钥',
+);
+
+final result = await adapter.postJson(
+  '/api/json',
+  body: <String, dynamic>{'name': 'dio-client'},
+);
+```
+
+适合场景：
+
+- 现有项目已经统一使用 `dio`
+- 需要复用现有拦截器、超时、代理、日志和证书配置
 
 ## 错误处理
 

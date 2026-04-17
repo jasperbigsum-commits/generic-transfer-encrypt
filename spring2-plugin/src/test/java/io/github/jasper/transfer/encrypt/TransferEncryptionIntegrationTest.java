@@ -9,10 +9,13 @@ import io.github.jasper.transfer.encrypt.core.TransferConstants;
 import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
 import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
+import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+
+import lombok.SneakyThrows;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,7 +79,7 @@ class TransferEncryptionIntegrationTest {
 
         final MvcResult result = mockMvc.perform(post("/api/json")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(envelope)))
+                        .content(wrapEnvelope(envelope)))
                 .andExpect(status().isOk())
                 .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
                 .andReturn();
@@ -164,19 +167,35 @@ class TransferEncryptionIntegrationTest {
     private <T> T decryptJsonResponse(final MvcResult result, final String sm4Key, final Class<T> type)
             throws Exception {
         final TransferEnvelope responseEnvelope =
-                objectMapper.readValue(result.getResponse().getContentAsByteArray(), TransferEnvelope.class);
+                unwrapEnvelope(result.getResponse().getContentAsByteArray());
         final byte[] plaintext = codec().decodeResponseEnvelope(responseEnvelope, sm4Key);
         return objectMapper.readValue(plaintext, type);
     }
 
     private String buildEnvelopeQuery(final TransferEnvelope envelope) {
-        return TransferConstants.FIELD_ENCRYPTED_KEY + "=" + urlEncode(envelope.getEncryptedKey()) + "&"
-                + TransferConstants.FIELD_ENCRYPTED_DATA + "=" + urlEncode(envelope.getEncryptedData()) + "&"
-                + TransferConstants.FIELD_CONTENT_MD5 + "=" + urlEncode(envelope.getContentMd5());
+        return TransferConstants.FIELD_TRANSFER_PAYLOAD + "="
+                + urlEncode(TransferJsonUtils.encodeTransportPayload(objectMapper, envelope))
+                + "&" + TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE + "="
+                + urlEncode(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
     }
 
+    private byte[] wrapEnvelope(final TransferEnvelope envelope) throws Exception {
+        final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
+        wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        return objectMapper.writeValueAsBytes(wrapper);
+    }
+
+    private TransferEnvelope unwrapEnvelope(final byte[] responseBody) throws Exception {
+        final Map<?, ?> wrapper = objectMapper.readValue(responseBody, Map.class);
+        return TransferJsonUtils.decodeTransportPayload(objectMapper,
+                String.valueOf(wrapper.get(TransferConstants.FIELD_TRANSFER_PAYLOAD)));
+    }
+
+    @SneakyThrows
     private String urlEncode(final String value) {
-        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
+        return java.net.URLEncoder.encode(value, "UTF-8");
     }
 
     private TransferEnvelopeCodec codec() {
@@ -187,7 +206,6 @@ class TransferEncryptionIntegrationTest {
     }
 
     @SpringBootApplication
-    @EnableAutoConfiguration
     @Import(DemoController.class)
     static class TestApplication {
     }

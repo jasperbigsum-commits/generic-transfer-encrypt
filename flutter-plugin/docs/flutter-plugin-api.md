@@ -94,6 +94,35 @@ Future<TransferEncryptBinaryResponse> requestBinary({
 
 - 若头里包含 `X-Transfer-Content-MD5`，自动校验
 
+## TransferEncryptDioAdapter
+
+构造函数：
+
+```dart
+TransferEncryptDioAdapter({
+  required Dio dio,
+  required String publicKey,
+  String baseUrl = '',
+  String multipartMd5FieldPrefix = '__md5_',
+})
+```
+
+用途：
+
+- 面向已使用 `dio` 的项目
+- 复用现有 `dio` 配置、超时、代理、拦截器
+
+主要方法：
+
+- `request(...)`
+- `requestBinary(...)`
+- `postJson(...)`
+- `postForm(...)`
+- `get(...)`
+- `delete(...)`
+- `upload(...)`
+- `uploadSingle(...)`
+
 ## TransferEncryptFile
 
 构造函数：

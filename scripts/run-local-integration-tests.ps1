@@ -1,6 +1,8 @@
 param(
     [switch]$SkipSpring,
     [switch]$SkipVanillaJs,
+    [switch]$SkipVue3,
+    [switch]$SkipE2EDemo,
     [switch]$SkipFlutter,
     [switch]$IncludeFlutterAnalyze,
     [switch]$AllowMissingTools,
@@ -128,6 +130,40 @@ if (-not $SkipVanillaJs) {
     }
 } else {
     Add-Result -Module 'vanilla-js-plugin' -Status 'SKIP' -Details 'Skipped by parameter'
+}
+
+if (-not $SkipVue3) {
+    if ($null -eq $nodePath) {
+        if (-not (Skip-OrFail-MissingTool -Module 'vue3-plugin' -ToolName 'node' -Reason 'Install Node.js and ensure node is in PATH.')) {
+            # no-op
+        }
+    } else {
+        Invoke-NativeStep `
+            -Module 'vue3-plugin' `
+            -Executable $nodePath `
+            -Arguments @('tests/transfer-encrypt-vue3.native.test.mjs') `
+            -WorkingDirectory (Join-Path $repoRoot 'vue3-plugin') `
+            -DisplayName 'vue3-plugin: node tests/transfer-encrypt-vue3.native.test.mjs'
+    }
+} else {
+    Add-Result -Module 'vue3-plugin' -Status 'SKIP' -Details 'Skipped by parameter'
+}
+
+if (-not $SkipE2EDemo) {
+    if ($null -eq $mavenPath) {
+        if (-not (Skip-OrFail-MissingTool -Module 'e2e-demo' -ToolName 'mvn' -Reason 'Install Maven and ensure mvn is in PATH.')) {
+            # no-op
+        }
+    } else {
+        Invoke-NativeStep `
+            -Module 'e2e-demo' `
+            -Executable $mavenPath `
+            -Arguments @('-Dmaven.repo.local=..\..\spring2-plugin\.m2repo', 'test') `
+            -WorkingDirectory (Join-Path $repoRoot 'e2e-demo\server') `
+            -DisplayName 'e2e-demo/server: mvn -Dmaven.repo.local=..\..\spring2-plugin\.m2repo test'
+    }
+} else {
+    Add-Result -Module 'e2e-demo' -Status 'SKIP' -Details 'Skipped by parameter'
 }
 
 if (-not $SkipFlutter) {

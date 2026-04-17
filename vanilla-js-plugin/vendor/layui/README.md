@@ -10,8 +10,8 @@
 示例页面 [layui-example.html](.\example\layui-example.html) 默认按以下路径引用：
 
 ```html
-<link rel="stylesheet" href="./vendor/layui/layui.css">
-<script src="./vendor/layui/layui.js"></script>
+<link rel="stylesheet" href="./vendor/layui/dist/css/layui.css">
+<script src="./vendor/layui/dist/layui.js"></script>
 ```
 
 如果你们项目里的 `layui` 路径不同，直接调整 HTML 引用地址即可。

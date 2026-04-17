@@ -10,7 +10,6 @@ import io.github.jasper.transfer.encrypt.feign.TransferFeignBeanPostProcessor;
 import io.github.jasper.transfer.encrypt.web.TransferEncryptionFilter;
 import io.github.jasper.transfer.encrypt.web.TransferMultipartIntegrityInterceptor;
 import io.github.jasper.transfer.encrypt.web.TransferPathMatcher;
-import javax.servlet.Filter;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -53,13 +52,14 @@ public class TransferEncryptAutoConfiguration {
         return new TransferPathMatcher(properties);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    public FilterRegistrationBean<Filter> transferEncryptionFilter(final ObjectMapper objectMapper,
-            final TransferEnvelopeCodec transferEnvelopeCodec, final TransferPathMatcher transferPathMatcher) {
-        final FilterRegistrationBean<Filter> bean = new FilterRegistrationBean<>();
+    @Bean(name = "transferEncryptionFilterRegistrationBean")
+    @ConditionalOnMissingBean(name = "transferEncryptionFilterRegistrationBean")
+    public FilterRegistrationBean<TransferEncryptionFilter> transferEncryptionFilterRegistrationBean(
+            final ObjectMapper objectMapper, final TransferEnvelopeCodec transferEnvelopeCodec,
+            final TransferPathMatcher transferPathMatcher, final TransferEncryptProperties properties) {
+        final FilterRegistrationBean<TransferEncryptionFilter> bean = new FilterRegistrationBean<>();
         bean.setFilter(new TransferEncryptionFilter(objectMapper, transferEnvelopeCodec, transferPathMatcher));
-        bean.setOrder(-10);
+        bean.setOrder(properties.getFilterOrder());
         return bean;
     }
 

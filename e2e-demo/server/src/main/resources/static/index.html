@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transfer Encrypt E2E Demo</title>
+  <link rel="stylesheet" href="/demo-assets/vanilla/vendor/layui/dist/css/layui.css">
+  <style>
+    :root {
+      --bg: #edf6f4;
+      --panel: rgba(255, 255, 255, 0.92);
+      --text: #0f172a;
+      --muted: #475569;
+      --brand: #0b7285;
+      --brand-strong: #095c6b;
+      --line: rgba(15, 23, 42, 0.08);
+      --code: #0f172a;
+      --code-text: #e2e8f0;
+      --error: #b91c1c;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top right, rgba(11, 114, 133, 0.16), transparent 28%),
+        linear-gradient(135deg, #f8fafc, var(--bg));
+    }
+
+    .page {
+      width: min(1200px, 100%);
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+
+    .hero {
+      margin-bottom: 24px;
+      padding: 28px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(11, 114, 133, 0.94), rgba(15, 23, 42, 0.94));
+      color: white;
+      box-shadow: 0 28px 60px rgba(15, 23, 42, 0.18);
+    }
+
+    .hero p {
+      margin: 8px 0 0;
+      max-width: 780px;
+      color: rgba(255, 255, 255, 0.86);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .card, .result-card {
+      border-radius: 24px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+      backdrop-filter: blur(10px);
+    }
+
+    .card {
+      padding: 22px;
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+    }
+
+    .card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      min-height: 44px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      background: white;
+    }
+
+    button, .download-link {
+      padding: 11px 16px;
+      border: none;
+      border-radius: 999px;
+      background: var(--brand);
+      color: white;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    button:hover, .download-link:hover {
+      background: var(--brand-strong);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .result-card {
+      padding: 24px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      border-radius: 18px;
+      background: var(--code);
+      color: var(--code-text);
+      min-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .meta {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .wide {
+      margin-top: 18px;
+    }
+
+    .wide .layui-card-body {
+      padding: 18px;
+    }
+
+    .wide h2 {
+      margin: 0 0 12px;
+    }
+
+    .layui-input,
+    .layui-textarea,
+    .layui-select-title input {
+      border-radius: 14px !important;
+    }
+
+    .layui-btn {
+      border-radius: 999px;
+      background: var(--brand);
+    }
+
+    .layui-btn-primary {
+      background: white;
+      color: var(--brand-strong);
+      border-color: rgba(11, 114, 133, 0.25);
+    }
+
+    .layui-table-view,
+    .layui-form-pane .layui-form-label,
+    .layui-form-pane .layui-input-block {
+      border-radius: 16px;
+    }
+
+    .error {
+      color: var(--error);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <section class="hero">
+    <h1>Transfer Encrypt End-to-End Demo</h1>
+    <p>当前页面由 demo 服务直接提供，接口请求走仓库统一的浏览器传输加密协议。页面会先拉取服务端临时生成的 SM2 公钥，再自动完成 JSON、form、query、上传和下载的联调。</p>
+  </section>
+
+  <section class="grid">
+    <article class="card">
+      <h2>JSON</h2>
+      <p>验证 JSON 请求解密和 JSON 响应加密。</p>
+      <input id="jsonName" type="text" value="alice-json">
+      <div class="row">
+        <button data-action="json">发送 JSON 请求</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Form</h2>
+      <p>验证 `application/x-www-form-urlencoded` 请求解密。</p>
+      <input id="formName" type="text" value="alice-form">
+      <div class="row">
+        <button data-action="form">发送 Form 请求</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Query</h2>
+      <p>验证 GET query 整体加密后再由服务端恢复。</p>
+      <input id="queryName" type="text" value="alice-query">
+      <div class="row">
+        <button data-action="query">发送 Query 请求</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Upload</h2>
+      <p>验证文件上传不加密，但自动追加 `__md5_` 字段。</p>
+      <input id="uploadFile" type="file">
+      <div class="row">
+        <button data-action="upload">上传单文件</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Upload Multi</h2>
+      <p>验证同字段多文件时使用 `__md5_field__index` 规则。</p>
+      <input id="uploadFiles" type="file" multiple>
+      <div class="row">
+        <button data-action="uploadMulti">上传多文件</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>Download</h2>
+      <p>验证二进制下载不加密，但会校验 `X-Transfer-Content-MD5`。</p>
+      <div class="row">
+        <button data-action="download">下载文件</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>OpenFeign</h2>
+      <p>验证浏览器入站加密 + 服务端 OpenFeign 出站加密 + 下游再次解密的完整链路。</p>
+      <input id="feignName" type="text" value="alice-feign">
+      <div class="row">
+        <button data-action="feign">发送 Feign 端到端请求</button>
+      </div>
+    </article>
+  </section>
+
+  <section class="result-card">
+    <h2>结果</h2>
+    <pre id="result">{ "status": "waiting" }</pre>
+    <div class="meta" id="meta">正在初始化...</div>
+  </section>
+
+  <section class="card wide">
+    <div class="layui-card-body">
+      <h2>Layui Table 自动加密桥接</h2>
+      <p class="desc">下面这个表格继续使用 `table.render({ url })` 写法，但请求会自动按当前插件协议走加解密。</p>
+      <form class="layui-form layui-form-pane" lay-filter="table-search-form" action="javascript:void(0);" style="margin-bottom: 14px;">
+        <div class="layui-form-item">
+          <label class="layui-form-label">关键字</label>
+          <div class="layui-input-inline" style="width: 240px;">
+            <input id="tableKeyword" type="text" name="keyword" value="alice" placeholder="输入姓名关键字" autocomplete="off" class="layui-input">
+          </div>
+          <div class="layui-input-inline" style="width: auto;">
+            <button class="layui-btn" lay-submit lay-filter="table-search-submit">表单查询</button>
+            <button type="button" class="layui-btn layui-btn-primary" id="reloadTable">普通刷新</button>
+          </div>
+        </div>
+      </form>
+      <table class="layui-hide" id="encrypt-table"></table>
+    </div>
+  </section>
+
+  <section class="card wide">
+    <div class="layui-card-body">
+      <h2>Layui Form 自动回填渲染</h2>
+      <p class="desc">点击按钮后会请求 `/api/profile`，再自动执行 `form.val(...)` 和 `form.render()`。</p>
+      <div class="row" style="margin-bottom: 14px;">
+        <input id="profileUserId" type="text" value="1" placeholder="用户ID">
+        <button id="loadProfile">加载档案</button>
+      </div>
+      <form class="layui-form layui-form-pane" lay-filter="profile-form" action="javascript:void(0);">
+        <div class="layui-form-item">
+          <label class="layui-form-label">用户ID</label>
+          <div class="layui-input-block">
+            <input type="text" name="userId" readonly class="layui-input">
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label">姓名</label>
+          <div class="layui-input-block">
+            <input type="text" name="name" readonly class="layui-input">
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label">城市</label>
+          <div class="layui-input-block">
+            <input type="text" name="city" readonly class="layui-input">
+          </div>
+        </div>
+        <div class="layui-form-item">
+          <label class="layui-form-label">角色</label>
+          <div class="layui-input-block">
+            <select name="role" disabled>
+              <option value="">请选择</option>
+              <option value="demo-user">demo-user</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+</div>
+
+<script src="/demo-assets/vanilla/vendor/layui/dist/layui.js"></script>
+<script src="/demo-assets/vanilla/vendor/md5.js"></script>
+<script src="/demo-assets/vanilla/vendor/sm-crypto.min.js"></script>
+<script src="/demo-assets/vanilla/transfer-encrypt.js"></script>
+<script src="/demo-app.js"></script>
+</body>
+</html>

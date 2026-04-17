@@ -3,13 +3,13 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:dart_sm/dart_sm.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'transfer_encrypt_binary_response.dart';
 import 'transfer_encrypt_exception.dart';
 import 'transfer_encrypt_file.dart';
+import 'transfer_encrypt_protocol.dart';
 
 /// Flutter client for the repository transport-encryption protocol.
 ///
@@ -27,7 +27,10 @@ class TransferEncryptClient {
     Random? random,
   })  : _httpClient = httpClient ?? http.Client(),
         _ownsHttpClient = httpClient == null,
-        _random = random ?? Random.secure();
+        _protocol = TransferEncryptProtocol(
+          publicKey: publicKey,
+          random: random,
+        );
 
   final String publicKey;
   final String baseUrl;
@@ -35,7 +38,7 @@ class TransferEncryptClient {
 
   final http.Client _httpClient;
   final bool _ownsHttpClient;
-  final Random _random;
+  final TransferEncryptProtocol _protocol;
 
   /// Sends a request and returns a decoded plaintext result.
   ///
@@ -304,14 +307,21 @@ class TransferEncryptClient {
 
     dynamic decodedBody = text;
     if ((encrypted || looksJson) && text.isNotEmpty) {
-      final parsed = _tryParseJson(text);
-      if (parsed is Map<String, dynamic> &&
+      final parsed = _protocol.tryParseJson(text);
+      final message = _protocol.decodeTransportMessage(parsed);
+      TransferEncryptEnvelope? envelope;
+      if (message != null) {
+        envelope = _protocol.decodeTransferPayload(message.transferPayload);
+      } else if (parsed is Map<String, dynamic> &&
           parsed['encryptedData'] is String &&
           sm4Key != null) {
-        final envelope = _TransferEnvelope.fromJson(parsed);
-        final plaintext = _decryptEnvelope(envelope, sm4Key);
-        if ((envelope.originalContentType ?? '').contains('application/json')) {
-          decodedBody = _tryParseJson(plaintext) ?? plaintext;
+        envelope = TransferEncryptEnvelope.fromJson(parsed);
+      }
+      if (envelope != null && sm4Key != null) {
+        final plaintext = _protocol.decryptEnvelope(envelope, sm4Key);
+        final originalContentType = message?.originalContentType ?? '';
+        if (originalContentType.contains('application/json')) {
+          decodedBody = _protocol.tryParseJson(plaintext) ?? plaintext;
         } else {
           decodedBody = plaintext;
         }
@@ -343,14 +353,25 @@ class TransferEncryptClient {
     }
 
     final text = utf8.decode(bodyBytes);
-    final parsed = _tryParseJson(text);
-    if (parsed is Map<String, dynamic> &&
+    final parsed = _protocol.tryParseJson(text);
+    final message = _protocol.decodeTransportMessage(parsed);
+    TransferEncryptEnvelope? envelope;
+    if (message != null) {
+      envelope = _protocol.decodeTransferPayload(message.transferPayload);
+    } else if (parsed is Map<String, dynamic> &&
         parsed['encryptedData'] is String &&
         sm4Key != null &&
         headerMap['x-transfer-encrypted'] == 'true') {
-      final envelope = _TransferEnvelope.fromJson(parsed);
-      final plaintext = _decryptEnvelope(envelope, sm4Key);
-      return _tryParseJson(plaintext) ?? plaintext;
+      envelope = TransferEncryptEnvelope.fromJson(parsed);
+    }
+    if (envelope != null &&
+        sm4Key != null &&
+        headerMap['x-transfer-encrypted'] == 'true') {
+      final plaintext = _protocol.decryptEnvelope(envelope, sm4Key);
+      if ((message?.originalContentType ?? '').contains('application/json')) {
+        return _protocol.tryParseJson(plaintext) ?? plaintext;
+      }
+      return plaintext;
     }
     return parsed ?? text;
   }
@@ -376,37 +397,42 @@ class TransferEncryptClient {
     if ((normalizedMethod == 'GET' || normalizedMethod == 'DELETE') &&
         params != null &&
         params.isNotEmpty) {
-      sm4Key = _randomSm4Key();
-      final envelope = _createEnvelope(
-        plaintext: _normalizeParameters(params),
-        originalContentType: 'application/x-www-form-urlencoded',
+      sm4Key = _protocol.randomSm4Key();
+      final message = _protocol.createTransportMessage(
+        envelope: _protocol.createEnvelope(
+        plaintext: _protocol.normalizeParameters(params),
         sm4Key: sm4Key,
+        ),
+        originalContentType: 'application/x-www-form-urlencoded',
       );
-      requestUri = _appendQueryString(
+      requestUri = _protocol.appendQueryString(
         resolvedUri,
-        _normalizeParameters(envelope.toQueryMap()),
+        _protocol.normalizeParameters(message.toQueryMap()),
       );
     } else if (form != null) {
-      sm4Key = _randomSm4Key();
+      sm4Key = _protocol.randomSm4Key();
       requestHeaders['Content-Type'] =
           'application/x-www-form-urlencoded;charset=UTF-8';
-      requestBody = _normalizeParameters(
-        _createEnvelope(
-          plaintext: _normalizeParameters(form),
-          originalContentType: 'application/x-www-form-urlencoded',
+      final message = _protocol.createTransportMessage(
+        envelope: _protocol.createEnvelope(
+          plaintext: _protocol.normalizeParameters(form),
           sm4Key: sm4Key,
-        ).toQueryMap(),
+        ),
+        originalContentType: 'application/x-www-form-urlencoded',
+      );
+      requestBody = _protocol.normalizeParameters(
+        message.toQueryMap(),
       );
     } else if (json != null) {
-      sm4Key = _randomSm4Key();
+      sm4Key = _protocol.randomSm4Key();
       requestHeaders['Content-Type'] = 'application/json;charset=UTF-8';
-      requestBody = jsonEncode(
-        _createEnvelope(
+      requestBody = jsonEncode(_protocol.createTransportMessage(
+        envelope: _protocol.createEnvelope(
           plaintext: jsonEncode(json),
-          originalContentType: 'application/json',
           sm4Key: sm4Key,
-        ).toJson(),
-      );
+        ),
+        originalContentType: 'application/json',
+      ).toJson());
     }
 
     final rawRequest = http.Request(normalizedMethod, requestUri)
@@ -418,89 +444,10 @@ class TransferEncryptClient {
     return _PreparedRequest(request: rawRequest, sm4Key: sm4Key);
   }
 
-  _TransferEnvelope _createEnvelope({
-    required String plaintext,
-    required String originalContentType,
-    required String sm4Key,
-  }) {
-    final trimmedPublicKey = publicKey.trim();
-    final encryptedKey = SM2.encrypt(
-      sm4Key,
-      trimmedPublicKey,
-      cipherMode: C1C3C2,
-    );
-    final encryptedData = SM4.encrypt(
-      plaintext,
-      key: _asciiToHex(sm4Key),
-    );
-    return _TransferEnvelope(
-      algorithm: 'SM2_SM4',
-      encryptedKey: encryptedKey,
-      encryptedData: encryptedData,
-      contentMd5: md5.convert(utf8.encode(plaintext)).toString(),
-      originalContentType: originalContentType,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-    );
-  }
-
-  String _decryptEnvelope(_TransferEnvelope envelope, String sm4Key) {
-    final plaintext = SM4.decrypt(
-      envelope.encryptedData,
-      key: _asciiToHex(sm4Key),
-    );
-    final actualMd5 = md5.convert(utf8.encode(plaintext)).toString();
-    if (actualMd5.toLowerCase() != envelope.contentMd5.toLowerCase()) {
-      throw const TransferEncryptException('响应 MD5 校验失败');
-    }
-    return plaintext;
-  }
-
-  String _randomSm4Key() {
-    const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    final buffer = StringBuffer();
-    for (var index = 0; index < 16; index += 1) {
-      buffer.write(chars[_random.nextInt(chars.length)]);
-    }
-    return buffer.toString();
-  }
-
-  String _normalizeParameters(Map<String, dynamic> input) {
-    final pairs = <String>[];
-    for (final entry in input.entries) {
-      final key = entry.key;
-      final value = entry.value;
-      if (value == null) {
-        continue;
-      }
-      if (value is Iterable && value is! String) {
-        for (final item in value) {
-          pairs.add(
-            '${Uri.encodeQueryComponent(key)}='
-            '${Uri.encodeQueryComponent(item?.toString() ?? '')}',
-          );
-        }
-        continue;
-      }
-      pairs.add(
-        '${Uri.encodeQueryComponent(key)}='
-        '${Uri.encodeQueryComponent(value.toString())}',
-      );
-    }
-    return pairs.join('&');
-  }
-
   Map<String, String> _lowerHeaders(Map<String, String> headers) {
     return headers.map(
       (key, value) => MapEntry(key.toLowerCase(), value),
     );
-  }
-
-  dynamic _tryParseJson(String text) {
-    try {
-      return jsonDecode(text);
-    } catch (_) {
-      return null;
-    }
   }
 
   Uri _resolveUri(String path) {
@@ -512,23 +459,6 @@ class TransferEncryptClient {
       return Uri.parse(trimmed);
     }
     return Uri.parse(baseUrl).resolve(trimmed);
-  }
-
-  Uri _appendQueryString(Uri uri, String queryString) {
-    if (queryString.isEmpty) {
-      return uri;
-    }
-    if (uri.query.isEmpty) {
-      return uri.replace(query: queryString);
-    }
-    return uri.replace(query: '${uri.query}&$queryString');
-  }
-
-  String _asciiToHex(String text) {
-    final values = text.codeUnits
-        .map((value) => value.toRadixString(16).padLeft(2, '0'))
-        .join();
-    return values.toLowerCase();
   }
 
   MediaType? _parseMediaType(String rawValue) {
@@ -557,55 +487,4 @@ class _PreparedRequest {
 
   final http.Request request;
   final String? sm4Key;
-}
-
-class _TransferEnvelope {
-  const _TransferEnvelope({
-    required this.algorithm,
-    required this.encryptedKey,
-    required this.encryptedData,
-    required this.contentMd5,
-    required this.originalContentType,
-    required this.timestamp,
-  });
-
-  factory _TransferEnvelope.fromJson(Map<String, dynamic> json) {
-    return _TransferEnvelope(
-      algorithm: (json['algorithm'] ?? '').toString(),
-      encryptedKey: (json['encryptedKey'] ?? '').toString(),
-      encryptedData: (json['encryptedData'] ?? '').toString(),
-      contentMd5: (json['contentMd5'] ?? '').toString(),
-      originalContentType: json['originalContentType']?.toString(),
-      timestamp: (json['timestamp'] as num?)?.toInt(),
-    );
-  }
-
-  final String algorithm;
-  final String encryptedKey;
-  final String encryptedData;
-  final String contentMd5;
-  final String? originalContentType;
-  final int? timestamp;
-
-  Map<String, dynamic> toJson() {
-    return <String, dynamic>{
-      'algorithm': algorithm,
-      'encryptedKey': encryptedKey,
-      'encryptedData': encryptedData,
-      'contentMd5': contentMd5,
-      'originalContentType': originalContentType,
-      'timestamp': timestamp,
-    };
-  }
-
-  Map<String, dynamic> toQueryMap() {
-    return <String, dynamic>{
-      'algorithm': algorithm,
-      'encryptedKey': encryptedKey,
-      'encryptedData': encryptedData,
-      'contentMd5': contentMd5,
-      'originalContentType': originalContentType,
-      'timestamp': timestamp?.toString(),
-    };
-  }
 }

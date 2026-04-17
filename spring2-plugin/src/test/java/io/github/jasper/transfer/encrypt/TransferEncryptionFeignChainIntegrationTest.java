@@ -11,6 +11,7 @@ import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
 import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
 import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
+import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -83,7 +85,7 @@ class TransferEncryptionFeignChainIntegrationTest {
 
         final ResponseEntity<byte[]> response = restTemplate().postForEntity(
                 baseUrl("/gateway/encrypted"),
-                jsonEntity(objectMapper.writeValueAsBytes(requestEnvelope)),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
                 byte[].class);
 
         Assertions.assertEquals(200, response.getStatusCodeValue());
@@ -104,7 +106,7 @@ class TransferEncryptionFeignChainIntegrationTest {
 
         final ResponseEntity<byte[]> response = restTemplate().postForEntity(
                 baseUrl("/gateway/plain"),
-                jsonEntity(objectMapper.writeValueAsBytes(requestEnvelope)),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
                 byte[].class);
 
         Assertions.assertEquals(200, response.getStatusCodeValue());
@@ -124,7 +126,7 @@ class TransferEncryptionFeignChainIntegrationTest {
 
         final ResponseEntity<byte[]> response = restTemplate().postForEntity(
                 baseUrl("/gateway/md5-disabled"),
-                jsonEntity(objectMapper.writeValueAsBytes(requestEnvelope)),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
                 byte[].class);
 
         Assertions.assertEquals(200, response.getStatusCodeValue());
@@ -143,9 +145,29 @@ class TransferEncryptionFeignChainIntegrationTest {
         final HttpServerErrorException exception = Assertions.assertThrows(HttpServerErrorException.class, () ->
                 restTemplate().postForEntity(
                         baseUrl("/gateway/md5-enabled"),
-                        jsonEntity(objectMapper.writeValueAsBytes(requestEnvelope)),
+                        jsonEntity(wrapEnvelope(requestEnvelope)),
                         byte[].class));
         Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+    }
+
+    @Test
+    void shouldPreferEnvelopeContentMd5OverWrongHeaderForEncryptedResponse() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "header-vs-envelope");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final ResponseEntity<byte[]> response = restTemplate().postForEntity(
+                baseUrl("/gateway/encrypted-header-md5"),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
+                byte[].class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        final Map<?, ?> gatewayResponse = decryptJsonResponse(response.getBody(), sm4Key, Map.class);
+        final Map<?, ?> downstream = (Map<?, ?>) gatewayResponse.get("downstream");
+        Assertions.assertEquals("header-vs-envelope", downstream.get("name"));
+        Assertions.assertEquals(Boolean.TRUE, downstream.get("encryptedRequest"));
     }
 
     private HttpEntity<byte[]> jsonEntity(final byte[] body) {
@@ -164,9 +186,19 @@ class TransferEncryptionFeignChainIntegrationTest {
 
     private <T> T decryptJsonResponse(final byte[] responseBody, final String sm4Key, final Class<T> type)
             throws Exception {
-        final TransferEnvelope responseEnvelope = objectMapper.readValue(responseBody, TransferEnvelope.class);
-        final byte[] plaintext = codec().decodeResponseEnvelope(responseEnvelope, sm4Key);
+        final Map<?, ?> wrapper = objectMapper.readValue(responseBody, Map.class);
+        final TransferEnvelope compactEnvelope = TransferJsonUtils.decodeTransportPayload(objectMapper,
+                String.valueOf(wrapper.get(TransferConstants.FIELD_TRANSFER_PAYLOAD)));
+        final byte[] plaintext = codec().decodeResponseEnvelope(compactEnvelope, sm4Key);
         return objectMapper.readValue(plaintext, type);
+    }
+
+    private byte[] wrapEnvelope(final TransferEnvelope envelope) throws Exception {
+        final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
+        wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        return objectMapper.writeValueAsBytes(wrapper);
     }
 
     private TransferEnvelopeCodec codec() {
@@ -209,6 +241,10 @@ class TransferEncryptionFeignChainIntegrationTest {
 
         @GetMapping(value = "/downstream/md5-enabled", produces = MediaType.TEXT_PLAIN_VALUE)
         String md5Enabled();
+
+        @TransferEncryptedFeignClient(publicKeyAlias = "downstream-correct")
+        @PostMapping(value = "/downstream/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE)
+        Map<String, Object> encryptedHeaderMd5(@RequestBody Map<String, Object> requestBody);
     }
 
     @FeignClient(name = "plainBridgeClient", url = "${test.server.url}")
@@ -255,6 +291,13 @@ class TransferEncryptionFeignChainIntegrationTest {
         public Map<String, Object> md5Enabled(@RequestBody final Map<String, Object> requestBody) {
             return Collections.<String, Object>singletonMap("body", encryptedBridgeClient.md5Enabled());
         }
+
+        @PostMapping(value = "/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encryptedHeaderMd5(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.<String, Object>singletonMap("downstream",
+                    encryptedBridgeClient.encryptedHeaderMd5(requestBody));
+        }
     }
 
     @RestController
@@ -287,6 +330,14 @@ class TransferEncryptionFeignChainIntegrationTest {
             return ResponseEntity.ok()
                     .header(TransferConstants.HEADER_CONTENT_MD5, "wrong-md5")
                     .body("wrong-md5-body");
+        }
+
+        @PostMapping(value = "/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encryptedHeaderMd5(@RequestBody final Map<String, Object> requestBody,
+                final HttpServletRequest request, final HttpServletResponse response) {
+            response.setHeader(TransferConstants.HEADER_CONTENT_MD5, "wrong-md5");
+            return response(requestBody, request);
         }
 
         private Map<String, Object> response(final Map<String, Object> requestBody, final HttpServletRequest request) {

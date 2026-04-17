@@ -32,30 +32,28 @@ public class TransferEnvelopeCodec {
     public TransferEnvelope createRequestEnvelope(final String plaintext, final String originalContentType,
             final String sm4Key, final String publicKey) {
         final TransferEnvelope envelope = new TransferEnvelope();
-        envelope.setAlgorithm(TransferConstants.ALGORITHM);
         envelope.setEncryptedKey(cryptoService.encryptSm2Key(sm4Key, publicKey));
         envelope.setEncryptedData(cryptoService.encryptBySm4(plaintext, sm4Key));
         envelope.setContentMd5(cryptoService.md5Hex(plaintext.getBytes(StandardCharsets.UTF_8)));
-        envelope.setOriginalContentType(originalContentType);
         envelope.setTimestamp(System.currentTimeMillis());
         return envelope;
     }
 
-    public TransferDecodedPayload decodeRequestEnvelope(final TransferEnvelope envelope) {
+    public TransferDecodedPayload decodeRequestEnvelope(final TransferEnvelope envelope,
+            final String originalContentType) {
         // 先解出本次请求的 SM4 key，再用该 key 解业务明文。
         final String sm4Key = cryptoService.decryptSm2Key(envelope.getEncryptedKey());
         final String plaintext = cryptoService.decryptBySm4(envelope.getEncryptedData(), sm4Key);
+        // 校验完整性
         verifyMd5(plaintext.getBytes(StandardCharsets.UTF_8), envelope.getContentMd5());
-        return new TransferDecodedPayload(plaintext, sm4Key, envelope.getOriginalContentType());
+        return new TransferDecodedPayload(plaintext, sm4Key, originalContentType);
     }
 
     public TransferEnvelope createResponseEnvelope(final byte[] plaintext, final String originalContentType,
             final String sm4Key) {
         final TransferEnvelope envelope = new TransferEnvelope();
-        envelope.setAlgorithm(TransferConstants.ALGORITHM);
         envelope.setEncryptedData(cryptoService.encryptBySm4(new String(plaintext, StandardCharsets.UTF_8), sm4Key));
         envelope.setContentMd5(cryptoService.md5Hex(plaintext));
-        envelope.setOriginalContentType(originalContentType);
         envelope.setTimestamp(System.currentTimeMillis());
         return envelope;
     }

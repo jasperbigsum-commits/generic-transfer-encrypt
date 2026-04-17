@@ -4,6 +4,7 @@ import io.github.jasper.transfer.encrypt.core.TransferConstants;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
+
+import lombok.SneakyThrows;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 
@@ -76,8 +79,8 @@ public final class TransferWebUtils {
     }
 
     public static boolean isTransferEnvelopeJson(final String payload) {
-        return StringUtils.hasText(payload) && payload.contains("\"" + TransferConstants.FIELD_ENCRYPTED_DATA + "\"")
-                && payload.contains("\"" + TransferConstants.FIELD_ENCRYPTED_KEY + "\"");
+        return StringUtils.hasText(payload)
+                && payload.contains("\"" + TransferConstants.FIELD_TRANSFER_PAYLOAD + "\"");
     }
 
     public static String normalizeContentType(final String contentType) {
@@ -99,7 +102,7 @@ public final class TransferWebUtils {
             final String value = separatorIndex >= 0 ? pair.substring(separatorIndex + 1) : "";
             final String decodedKey = decode(key);
             final String decodedValue = decode(value);
-            values.computeIfAbsent(decodedKey, item -> new ArrayList<String>()).add(decodedValue);
+            values.computeIfAbsent(decodedKey, item -> new ArrayList<>()).add(decodedValue);
         }
         final Map<String, String[]> parameterMap = new LinkedHashMap<String, String[]>();
         for (final Map.Entry<String, List<String>> entry : values.entrySet()) {
@@ -135,11 +138,13 @@ public final class TransferWebUtils {
         return StringUtils.hasText(contentType) && contentType.toLowerCase().contains(candidate.toLowerCase());
     }
 
+    @SneakyThrows
     private static String encode(final String source) {
-        return URLEncoder.encode(source, StandardCharsets.UTF_8);
+        return URLEncoder.encode(source, "UTF-8");
     }
 
+    @SneakyThrows
     private static String decode(final String source) {
-        return URLDecoder.decode(source, StandardCharsets.UTF_8);
+        return URLDecoder.decode(source, "UTF-8");
     }
 }

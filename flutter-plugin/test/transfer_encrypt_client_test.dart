@@ -15,15 +15,13 @@ void main() {
         publicKey: keyPair.publicKey,
         baseUrl: 'http://localhost:8080',
         httpClient: _CaptureClient((request) async {
-          expect(request, isA<http.Request>());
           final rawRequest = request as http.Request;
-          expect(
-            rawRequest.headers['Content-Type'],
-            contains('application/json'),
+          final wrapper =
+              jsonDecode(rawRequest.body) as Map<String, dynamic>;
+          final envelope = _decodeTransferPayload(
+            wrapper['transferPayload'] as String,
           );
 
-          final envelope =
-              jsonDecode(rawRequest.body) as Map<String, dynamic>;
           final sm4Key = SM2.decrypt(
             envelope['encryptedKey'] as String,
             keyPair.privateKey,
@@ -38,19 +36,23 @@ void main() {
             jsonDecode(plaintext),
             <String, dynamic>{'name': 'alice'},
           );
+          expect(wrapper['originalContentType'], 'application/json');
+
+          final responsePayload = _encodeTransferPayload(<String, dynamic>{
+            'encryptedData': SM4.encrypt(
+              jsonEncode(<String, dynamic>{'ok': true}),
+              key: _asciiToHex(sm4Key),
+            ),
+            'contentMd5': md5
+                .convert(utf8.encode(jsonEncode(<String, dynamic>{'ok': true})))
+                .toString(),
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
 
           return _jsonResponse(
             <String, dynamic>{
-              'algorithm': 'SM2_SM4',
-              'encryptedData': SM4.encrypt(
-                jsonEncode(<String, dynamic>{'ok': true}),
-                key: _asciiToHex(sm4Key),
-              ),
-              'contentMd5': md5
-                  .convert(utf8.encode(jsonEncode(<String, dynamic>{'ok': true})))
-                  .toString(),
+              'transferPayload': responsePayload,
               'originalContentType': 'application/json',
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
             },
             headers: <String, String>{
               'content-type': 'application/json;charset=UTF-8',
@@ -76,16 +78,21 @@ void main() {
         httpClient: _CaptureClient((request) async {
           final uri = request.url;
           expect(uri.path, '/api/query');
-          expect(uri.queryParameters['encryptedKey'], isNotNull);
-          expect(uri.queryParameters['encryptedData'], isNotNull);
+          final transferPayload = uri.queryParameters['transferPayload'];
+          expect(transferPayload, isNotNull);
+          expect(
+            uri.queryParameters['originalContentType'],
+            'application/x-www-form-urlencoded',
+          );
+          final envelope = _decodeTransferPayload(transferPayload!);
 
           final sm4Key = SM2.decrypt(
-            uri.queryParameters['encryptedKey']!,
+            envelope['encryptedKey'] as String,
             keyPair.privateKey,
             cipherMode: C1C3C2,
           );
           final plaintext = SM4.decrypt(
-            uri.queryParameters['encryptedData']!,
+            envelope['encryptedData'] as String,
             key: _asciiToHex(sm4Key),
           );
 
@@ -107,7 +114,6 @@ void main() {
       final client = TransferEncryptClient(
         publicKey: 'mock-public-key',
         httpClient: _CaptureClient((request) async {
-          expect(request, isA<http.MultipartRequest>());
           final multipart = request as http.MultipartRequest;
 
           expect(multipart.files, hasLength(2));
@@ -200,8 +206,11 @@ void main() {
         baseUrl: 'http://localhost:8080',
         httpClient: _CaptureClient((request) async {
           final rawRequest = request as http.Request;
-          final envelope =
+          final wrapper =
               jsonDecode(rawRequest.body) as Map<String, dynamic>;
+          final envelope = _decodeTransferPayload(
+            wrapper['transferPayload'] as String,
+          );
           final sm4Key = SM2.decrypt(
             envelope['encryptedKey'] as String,
             keyPair.privateKey,
@@ -215,6 +224,7 @@ void main() {
             jsonDecode(plaintext),
             <String, dynamic>{'bizId': 1001},
           );
+          expect(wrapper['originalContentType'], 'application/json');
 
           return _binaryResponse(
             bytes,
@@ -242,8 +252,11 @@ void main() {
         baseUrl: 'http://localhost:8080',
         httpClient: _CaptureClient((request) async {
           final rawRequest = request as http.Request;
-          final envelope =
+          final wrapper =
               jsonDecode(rawRequest.body) as Map<String, dynamic>;
+          final envelope = _decodeTransferPayload(
+            wrapper['transferPayload'] as String,
+          );
           final sm4Key = SM2.decrypt(
             envelope['encryptedKey'] as String,
             keyPair.privateKey,
@@ -257,14 +270,15 @@ void main() {
 
           return _jsonResponse(
             <String, dynamic>{
-              'algorithm': 'SM2_SM4',
-              'encryptedData': SM4.encrypt(
-                errorJson,
-                key: _asciiToHex(sm4Key),
-              ),
-              'contentMd5': md5.convert(utf8.encode(errorJson)).toString(),
+              'transferPayload': _encodeTransferPayload(<String, dynamic>{
+                'encryptedData': SM4.encrypt(
+                  errorJson,
+                  key: _asciiToHex(sm4Key),
+                ),
+                'contentMd5': md5.convert(utf8.encode(errorJson)).toString(),
+                'timestamp': DateTime.now().millisecondsSinceEpoch,
+              }),
               'originalContentType': 'application/json',
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
             },
             statusCode: 400,
             headers: <String, String>{
@@ -302,8 +316,11 @@ void main() {
         baseUrl: 'http://localhost:8080',
         httpClient: _CaptureClient((request) async {
           final rawRequest = request as http.Request;
-          final envelope =
+          final wrapper =
               jsonDecode(rawRequest.body) as Map<String, dynamic>;
+          final envelope = _decodeTransferPayload(
+            wrapper['transferPayload'] as String,
+          );
           final sm4Key = SM2.decrypt(
             envelope['encryptedKey'] as String,
             keyPair.privateKey,
@@ -317,14 +334,15 @@ void main() {
 
           return _jsonResponse(
             <String, dynamic>{
-              'algorithm': 'SM2_SM4',
-              'encryptedData': SM4.encrypt(
-                errorJson,
-                key: _asciiToHex(sm4Key),
-              ),
-              'contentMd5': md5.convert(utf8.encode(errorJson)).toString(),
+              'transferPayload': _encodeTransferPayload(<String, dynamic>{
+                'encryptedData': SM4.encrypt(
+                  errorJson,
+                  key: _asciiToHex(sm4Key),
+                ),
+                'contentMd5': md5.convert(utf8.encode(errorJson)).toString(),
+                'timestamp': DateTime.now().millisecondsSinceEpoch,
+              }),
               'originalContentType': 'application/json',
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
             },
             statusCode: 403,
             headers: <String, String>{
@@ -401,4 +419,18 @@ String _asciiToHex(String text) {
   return text.codeUnits
       .map((value) => value.toRadixString(16).padLeft(2, '0'))
       .join();
+}
+
+String _encodeTransferPayload(Map<String, dynamic> envelope) {
+  return base64Url.encode(utf8.encode(jsonEncode(envelope))).replaceAll('=', '');
+}
+
+Map<String, dynamic> _decodeTransferPayload(String payload) {
+  var normalized = payload;
+  while (normalized.length % 4 != 0) {
+    normalized += '=';
+  }
+  return Map<String, dynamic>.from(
+    jsonDecode(utf8.decode(base64Url.decode(normalized))) as Map,
+  );
 }

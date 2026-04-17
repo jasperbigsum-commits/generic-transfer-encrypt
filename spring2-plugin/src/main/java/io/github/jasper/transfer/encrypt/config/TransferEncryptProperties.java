@@ -28,13 +28,15 @@ public class TransferEncryptProperties {
 
     private String publicKey;
 
-    private List<String> includePathRegex = new ArrayList<String>(Arrays.asList("^/.*$"));
+    private List<String> includePathRegex = new ArrayList<>(Arrays.asList("^/.*$"));
 
-    private List<String> excludePathRegex = new ArrayList<String>();
+    private List<String> excludePathRegex = new ArrayList<>();
 
     private String multipartMd5FieldPrefix = "__md5_";
 
     private Map<String, String> feignPublicKeys = new LinkedHashMap<String, String>();
+
+    private int filterOrder = -10;
 
     public boolean isEnabled() {
         return enabled;
@@ -98,5 +100,13 @@ public class TransferEncryptProperties {
 
     public void setFeignPublicKeys(final Map<String, String> feignPublicKeys) {
         this.feignPublicKeys = feignPublicKeys;
+    }
+
+    public int getFilterOrder() {
+        return filterOrder;
+    }
+
+    public void setFilterOrder(final int filterOrder) {
+        this.filterOrder = filterOrder;
     }
 }
