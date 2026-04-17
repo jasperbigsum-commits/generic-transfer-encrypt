@@ -307,6 +307,57 @@
     return cloned;
   }
 
+  function parseLayuiSubmitFilter(eventName) {
+    var match = /^submit\((.+)\)$/.exec(String(eventName || ''));
+    return match ? match[1] : null;
+  }
+
+  function isPromiseLike(value) {
+    return !!value && typeof value.then === 'function';
+  }
+
+  function normalizeFormBridgeConfigs(options) {
+    if (!options) {
+      return {};
+    }
+    if (isPlainObject(options.forms)) {
+      return options.forms;
+    }
+    return options;
+  }
+
+  function hasRequestPayload(config) {
+    return hasOwn(config, 'body')
+      || hasOwn(config, 'json')
+      || hasOwn(config, 'form')
+      || hasOwn(config, 'data')
+      || hasOwn(config, 'where')
+      || hasOwn(config, 'params');
+  }
+
+  function populateSubmitPayload(config, submitData) {
+    var payload = submitData && submitData.field ? submitData.field : submitData;
+    if (config.json === true) {
+      config.json = payload;
+    }
+    if (config.form === true) {
+      config.form = payload;
+    }
+    if (config.data === true) {
+      config.data = payload;
+    }
+    if (config.where === true) {
+      config.where = payload;
+    }
+    if (config.params === true) {
+      config.params = payload;
+    }
+    if (!hasRequestPayload(config)) {
+      config.data = payload;
+    }
+    return config;
+  }
+
   function defaultErrorHandler(error, layuiLike) {
     var layui = resolveLayui(layuiLike);
     if (layui && layui.layer && layui.layer.msg) {
@@ -534,10 +585,18 @@
     var requestOptions = adapter.resolveRequestOptions(ajaxOptions);
     var responseHeaders = { 'content-type': 'application/json;charset=UTF-8' };
     var xhr = createLayuiAjaxResponseStub(responseHeaders, null);
+    var loadingIndex = null;
+
+    if (adapter.layer && ajaxOptions && ajaxOptions.loading !== false && adapter.layer.load) {
+      loadingIndex = adapter.layer.load(1, { shade: 0.15 });
+    }
 
     adapter.client.request(requestOptions).then(function (responseBody) {
       xhr.responseJSON = responseBody;
       xhr.responseText = typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody);
+      if (adapter.layer && ajaxOptions && ajaxOptions.successMessage && adapter.layer.msg) {
+        adapter.layer.msg(ajaxOptions.successMessage, { icon: 1 });
+      }
       if (typeof ajaxOptions.success === 'function') {
         ajaxOptions.success(responseBody, 'success', xhr);
       }
@@ -550,24 +609,27 @@
       xhr.responseText = JSON.stringify(xhr.responseJSON);
       if (typeof ajaxOptions.error === 'function') {
         ajaxOptions.error(xhr, 'error', error);
+      } else if (typeof ajaxOptions.onError === 'function') {
+        ajaxOptions.onError(error, xhr);
       } else {
         defaultErrorHandler(error, adapter.layui);
       }
       if (typeof ajaxOptions.complete === 'function') {
         ajaxOptions.complete(xhr, 'error');
       }
+    }).finally(function () {
+      if (adapter.layer && loadingIndex !== null && adapter.layer.close) {
+        adapter.layer.close(loadingIndex);
+      }
     });
 
     return xhr;
   };
 
-  TransferEncryptLayuiAdapter.prototype.installTableBridge = function () {
+  TransferEncryptLayuiAdapter.prototype.installAjaxBridge = function () {
     var layui = this.layui;
-    if (!layui || !layui.table) {
-      throw new Error('layui.table 不可用，无法安装 table 自动加密桥接');
-    }
-    if (!layui.$ || typeof layui.$.ajax !== 'function') {
-      throw new Error('layui.$.ajax 不可用，无法桥接 table 的 URL 请求');
+    if (!layui || !layui.$ || typeof layui.$.ajax !== 'function') {
+      throw new Error('layui.$.ajax 不可用，无法安装 ajax 自动加密桥接');
     }
 
     var adapter = this;
@@ -585,6 +647,57 @@
       layui.$.ajax.__transferEncryptOriginal = originalAjax;
     }
     layui.$.ajax.__transferEncryptAdapter = adapter;
+    return layui.$.ajax;
+  };
+
+  TransferEncryptLayuiAdapter.prototype.submitByBridgeConfig = async function (config, submitData) {
+    var bridgeConfig = populateSubmitPayload(cloneConfig(config || {}), submitData);
+    var requestOptions = this.resolveRequestOptions(bridgeConfig);
+    var responseHeaders = { 'content-type': 'application/json;charset=UTF-8' };
+
+    if (!bridgeConfig.method && !bridgeConfig.type) {
+      bridgeConfig.method = 'POST';
+      requestOptions = this.resolveRequestOptions(bridgeConfig);
+    }
+
+    requestOptions.loading = bridgeConfig.loading;
+    requestOptions.successMessage = bridgeConfig.successMessage;
+    requestOptions.onError = bridgeConfig.onError;
+
+    try {
+      var response = await this.request(requestOptions);
+      var successXhr = createLayuiAjaxResponseStub(responseHeaders, response);
+      if (typeof bridgeConfig.success === 'function') {
+        bridgeConfig.success(response, 'success', successXhr);
+      }
+      if (typeof bridgeConfig.complete === 'function') {
+        bridgeConfig.complete(successXhr, 'success');
+      }
+      if (typeof bridgeConfig.onSuccess === 'function') {
+        bridgeConfig.onSuccess(response, submitData);
+      }
+      return response;
+    } catch (error) {
+      var errorXhr = createLayuiAjaxResponseStub(responseHeaders, {
+        message: error && error.message ? error.message : '请求失败'
+      });
+      errorXhr.status = 500;
+      if (typeof bridgeConfig.error === 'function') {
+        bridgeConfig.error(errorXhr, 'error', error);
+      }
+      if (typeof bridgeConfig.complete === 'function') {
+        bridgeConfig.complete(errorXhr, 'error');
+      }
+      throw error;
+    }
+  };
+
+  TransferEncryptLayuiAdapter.prototype.installTableBridge = function () {
+    var layui = this.layui;
+    if (!layui || !layui.table) {
+      throw new Error('layui.table 不可用，无法安装 table 自动加密桥接');
+    }
+    this.installAjaxBridge();
 
     function markConfig(config) {
       var tableConfig = cloneConfig(config || {});
@@ -628,6 +741,51 @@
     }
 
     return layui.table;
+  };
+
+  TransferEncryptLayuiAdapter.prototype.installFormBridge = function (options) {
+    var layui = this.layui;
+    if (!layui || !layui.form || !layui.form.on) {
+      throw new Error('layui.form 不可用，无法安装 form 自动加密桥接');
+    }
+
+    var adapter = this;
+    if (!layui.form.on.__transferEncryptWrapped) {
+      var originalOn = layui.form.on;
+      layui.form.on = function (eventName, handler) {
+        var submitFilter = parseLayuiSubmitFilter(eventName);
+        if (!submitFilter || typeof handler !== 'function') {
+          return originalOn.apply(this, arguments);
+        }
+
+        return originalOn.call(this, eventName, async function (data) {
+          var result = handler.apply(this, arguments);
+          if (isPromiseLike(result)) {
+            result = await result;
+          }
+          if (!isPlainObject(result) || !result.url || result.transferEncrypt === false) {
+            return result;
+          }
+          await adapter.submitByBridgeConfig(result, data);
+          return false;
+        });
+      };
+      layui.form.on.__transferEncryptWrapped = true;
+      layui.form.on.__transferEncryptOriginal = originalOn;
+    }
+    layui.form.on.__transferEncryptAdapter = adapter;
+
+    var formConfigs = normalizeFormBridgeConfigs(options);
+    Object.keys(formConfigs).forEach(function (filter) {
+      var config = formConfigs[filter];
+      if (typeof config === 'function') {
+        layui.form.on('submit(' + filter + ')', config);
+        return;
+      }
+      adapter.bindFormSubmit(filter, config);
+    });
+
+    return layui.form;
   };
 
   TransferEncryptLayuiAdapter.prototype.renderForm = async function (filter, config) {

@@ -410,6 +410,118 @@ async function testLayuiFormBinding() {
   await submitHandler({ field: { name: 'layui' } });
 }
 
+async function testLayuiFormBridgeByReturnedConfig() {
+  let submitHandler = null;
+  let seenBody = null;
+  let successPayload = null;
+  const runtime = createRuntime(async (url, options) => {
+    void url;
+    seenBody = options.body;
+    return {
+      headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+      async text() {
+        return JSON.stringify({ ok: true, source: 'returned-config' });
+      }
+    };
+  });
+
+  runtime.layui = {
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    },
+    form: {
+      on(eventName, handler) {
+        if (eventName === 'submit(encrypt-submit)') {
+          submitHandler = handler;
+        }
+      }
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+
+  adapter.installFormBridge();
+  runtime.layui.form.on('submit(encrypt-submit)', function (data) {
+    assert.strictEqual(data.field.name, 'bridge');
+    return {
+      url: '/api/form-bridge',
+      form: true,
+      onSuccess(result, submitData) {
+        successPayload = { result, submitData };
+      }
+    };
+  });
+
+  assert.ok(typeof submitHandler === 'function');
+  const submitResult = await submitHandler({ field: { name: 'bridge' } });
+  assert.strictEqual(submitResult, false);
+  assert.ok(seenBody.indexOf('transferPayload=') > -1);
+  assert.strictEqual(successPayload.result.ok, true);
+  assert.strictEqual(successPayload.result.source, 'returned-config');
+  assert.strictEqual(successPayload.submitData.field.name, 'bridge');
+}
+
+async function testLayuiFormBridgeByFilterConfig() {
+  let submitHandler = null;
+  let seenBody = null;
+  let successResponse = null;
+  const runtime = createRuntime(async (url, options) => {
+    void url;
+    seenBody = options.body;
+    return {
+      headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+      async text() {
+        return JSON.stringify({ ok: true, source: 'filter-config' });
+      }
+    };
+  });
+
+  runtime.layui = {
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    },
+    form: {
+      on(eventName, handler) {
+        if (eventName === 'submit(encrypt-submit)') {
+          submitHandler = handler;
+        }
+      }
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+
+  adapter.installFormBridge({
+    forms: {
+      'encrypt-submit': {
+        url: '/api/form-bridge-map',
+        form: true,
+        onSuccess(result) {
+          successResponse = result;
+        }
+      }
+    }
+  });
+
+  assert.ok(typeof submitHandler === 'function');
+  await submitHandler({ field: { name: 'mapped' } });
+  assert.ok(seenBody.indexOf('transferPayload=') > -1);
+  assert.strictEqual(successResponse.ok, true);
+  assert.strictEqual(successResponse.source, 'filter-config');
+}
+
 async function testLayuiTableRenderBridge() {
   let seenUrl = null;
   let tableSuccessResponse = null;
@@ -605,6 +717,8 @@ async function main() {
   await testUploadMultiple();
   await testBinaryMd5Verify();
   await testLayuiFormBinding();
+  await testLayuiFormBridgeByReturnedConfig();
+  await testLayuiFormBridgeByFilterConfig();
   await testLayuiTableRenderBridge();
   await testLayuiRenderFormByUrl();
   await testPublicKeyAutoPrefix04();

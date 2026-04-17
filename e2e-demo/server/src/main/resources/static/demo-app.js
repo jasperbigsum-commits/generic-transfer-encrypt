@@ -3,7 +3,7 @@
 
   var resultElement = document.getElementById('result');
   var metaElement = document.getElementById('meta');
-  var actionButtons = document.querySelectorAll('button[data-action]');
+  var actionButtons = document.querySelectorAll('button');
   var client = null;
   var layuiAdapter = null;
   var layuiTable = null;
@@ -65,6 +65,7 @@
         layuiTable = layui.table;
         layuiForm = layui.form;
         layuiAdapter.installTableBridge();
+        installDemoFormBridge();
         installTableSearchFormBridge();
         renderDemoTable();
       });
@@ -86,18 +87,6 @@
       json: {
         name: value,
         from: 'e2e-demo'
-      }
-    });
-  }
-
-  async function handleForm() {
-    var value = document.getElementById('formName').value;
-    return client.request({
-      url: '/api/form',
-      method: 'POST',
-      form: {
-        name: value,
-        channel: 'form-demo'
       }
     });
   }
@@ -178,7 +167,6 @@
 
   var handlers = {
     json: handleJson,
-    form: handleForm,
     query: handleQuery,
     upload: handleUpload,
     uploadMulti: handleUploadMulti,
@@ -237,6 +225,33 @@
         setError('table-search-submit', error);
       }
       return false;
+    });
+  }
+
+  function installDemoFormBridge() {
+    if (!layuiForm || !layuiAdapter) {
+      return;
+    }
+    layuiAdapter.installFormBridge();
+    layuiForm.on('submit(form-submit)', function () {
+      setBusy(true);
+      setMeta('执行中: form-submit');
+      return {
+        url: '/api/form',
+        form: {
+          name: document.getElementById('formName').value,
+          channel: 'layui-form-bridge'
+        },
+        onSuccess: function (response) {
+          setResultAndMeta('form-submit', response);
+        },
+        onError: function (error) {
+          setError('form-submit', error);
+        },
+        complete: function () {
+          setBusy(false);
+        }
+      };
     });
   }
 

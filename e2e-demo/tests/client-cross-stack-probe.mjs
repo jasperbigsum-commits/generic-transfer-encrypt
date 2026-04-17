@@ -32,6 +32,12 @@ function createVanillaRuntime() {
     TextEncoder,
     TextDecoder,
     URLSearchParams,
+    btoa(value) {
+      return Buffer.from(value, 'binary').toString('base64');
+    },
+    atob(value) {
+      return Buffer.from(value, 'base64').toString('binary');
+    },
     Headers,
     FormData,
     Blob,
@@ -68,6 +74,7 @@ async function runStaticSmokeChecks() {
   const layuiCss = await fetchText(`${baseUrl}/demo-assets/vanilla/vendor/layui/dist/css/layui.css`);
 
   assert.match(homepage, /Transfer Encrypt End-to-End Demo/);
+  assert.match(homepage, /Form Bridge/i);
   assert.match(md5Script, /SparkMD5/);
   assert.match(transferScript, /TransferEncryptClient/);
   assert.match(smCryptoScript, /generateKeyPairHex/);
@@ -108,6 +115,61 @@ async function runVanillaRuntimeChecks(payload) {
   assert.equal(decrypted, plaintext);
 }
 
+async function runLayuiFormBridgeChecks(payload) {
+  log('Running layui form bridge checks...');
+  const runtime = createVanillaRuntime();
+  let submitHandler = null;
+  let bridgeResponse = null;
+
+  runtime.layui = {
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    },
+    form: {
+      on(eventName, handler) {
+        if (eventName === 'submit(form-submit)') {
+          submitHandler = handler;
+        }
+      }
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: payload.baseUrl,
+    publicKey: payload.publicKey,
+    smCrypto: runtime.smCrypto,
+    fetchImpl: fetch
+  });
+
+  adapter.installFormBridge();
+  runtime.layui.form.on('submit(form-submit)', function (data) {
+    assert.equal(data.field.name, 'probe-form');
+    return {
+      url: '/api/form',
+      form: true,
+      onSuccess(result) {
+        bridgeResponse = result;
+      }
+    };
+  });
+
+  assert.equal(typeof submitHandler, 'function');
+  const submitResult = await submitHandler({
+    field: {
+      name: 'probe-form',
+      channel: 'bridge-probe'
+    }
+  });
+
+  assert.equal(submitResult, false);
+  assert.equal(bridgeResponse.mode, 'form');
+  assert.equal(bridgeResponse.received.name, 'probe-form');
+  assert.equal(bridgeResponse.received.channel, 'bridge-probe');
+}
+
 async function runVue3RuntimeChecks(payload) {
   log('Running vue3 core checks...');
   const smCryptoScript = fs.readFileSync(
@@ -119,6 +181,12 @@ async function runVue3RuntimeChecks(payload) {
     TextEncoder,
     TextDecoder,
     URLSearchParams,
+    btoa(value) {
+      return Buffer.from(value, 'binary').toString('base64');
+    },
+    atob(value) {
+      return Buffer.from(value, 'base64').toString('binary');
+    },
     Headers,
     FormData,
     Blob,
@@ -163,6 +231,7 @@ async function main() {
   await runStaticSmokeChecks();
   const payload = await runPublicKeyChecks();
   await runVanillaRuntimeChecks(payload);
+  await runLayuiFormBridgeChecks(payload);
   await runVue3RuntimeChecks(payload);
   log('Cross-stack smoke probe passed.');
 }

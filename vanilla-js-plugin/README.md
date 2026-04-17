@@ -14,6 +14,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 如果你的页面本身使用 `layui`，可以直接接入：
 
 - [layui-example.html](./example/layui-example.html)
+- [layui-form-bridge-example.html](./example/layui-form-bridge-example.html)
 - [layui-table-example.html](./example/layui-table-example.html)
 - [layui-upload-example.html](./example/layui-upload-example.html)
 - [layui-upload-multiple-example.html](./example/layui-upload-multiple-example.html)
@@ -104,6 +105,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 - `adapter.json(url, data, options)`
 - `adapter.form(url, data, options)`
 - `adapter.get(url, params, options)`
+- `adapter.installFormBridge(options?)`
 - `adapter.installTableBridge()`
 - `adapter.renderForm(filter, config)`
 - `adapter.upload(file, options)`
@@ -114,6 +116,71 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 
 - 若存在 `layui.layer`，默认会展示加载框与错误提示。
 - 适配器仍然复用同一个 `TransferEncryptClient`，协议完全一致。
+
+## Layui Form 自动桥接
+
+如果你们希望保留 `layui.form.on('submit(...)', ...)` 的写法，只把“提交时发请求”这一步改成当前插件协议，可以直接安装 form bridge：
+
+```html
+<script>
+  layui.use(['form', 'layer'], function () {
+    var adapter = TransferEncryptCreateLayuiAdapter({
+      layui: layui,
+      baseUrl: 'http://localhost:8080',
+      publicKey: '服务端SM2公钥'
+    });
+
+    adapter.installFormBridge();
+
+    layui.form.on('submit(encrypt-submit)', function (data) {
+      return {
+        url: '/api/form',
+        form: true,
+        successMessage: '提交成功',
+        onSuccess: function (response) {
+          layui.layer.alert(JSON.stringify(response), { title: '响应结果' });
+        }
+      };
+    });
+  });
+</script>
+```
+
+效果：
+
+- 保留原来的 `layui.form.on('submit(...)', handler)` 入口
+- 只要 `handler` 返回一个带 `url` 的配置对象，就会自动走当前插件的加密协议
+- `form: true` / `json: true` 会自动使用 `data.field` 作为提交体
+- 若 `handler` 返回 `false`、普通值，或显式 `transferEncrypt: false`，则桥接器不会接管
+
+也支持按 `lay-filter` 直接批量绑定：
+
+```html
+<script>
+  adapter.installFormBridge({
+    forms: {
+      'encrypt-submit': {
+        url: '/api/form',
+        form: true,
+        successMessage: '提交成功',
+        onSuccess: function (response) {
+          console.log(response);
+        }
+      }
+    }
+  });
+</script>
+```
+
+说明：
+
+- 自动桥接仍然复用同一个 `TransferEncryptClient`
+- 可继续使用 `success` / `error` / `complete`
+- 也支持沿用适配器风格的 `onSuccess` / `onError` / `successMessage` / `loading`
+
+案例页面：
+
+- [layui-form-bridge-example.html](./example/layui-form-bridge-example.html)
 
 ## Layui Table 自动加密桥接
 

@@ -197,11 +197,13 @@
 
     <article class="card">
       <h2>Form</h2>
-      <p>验证 `application/x-www-form-urlencoded` 请求解密。</p>
-      <input id="formName" type="text" value="alice-form">
-      <div class="row">
-        <button data-action="form">发送 Form 请求</button>
-      </div>
+      <p>验证 `layui form bridge` 提交时，自动走 `application/x-www-form-urlencoded` 加密请求。</p>
+      <form class="layui-form" lay-filter="demo-form-bridge" action="javascript:void(0);">
+        <input id="formName" type="text" value="alice-form" class="layui-input">
+        <div class="row">
+          <button class="layui-btn" lay-submit lay-filter="form-submit">发送 Form Bridge 请求</button>
+        </div>
+      </form>
     </article>
 
     <article class="card">
