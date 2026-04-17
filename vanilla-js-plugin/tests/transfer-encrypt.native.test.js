@@ -522,6 +522,122 @@ async function testLayuiFormBridgeByFilterConfig() {
   assert.strictEqual(successResponse.source, 'filter-config');
 }
 
+async function testLayuiAjaxBridgeByTransferEncryptFlag() {
+  let seenBody = null;
+  let successResponse = null;
+  let completeStatus = null;
+  const runtime = createRuntime(async (url, options) => {
+    void url;
+    seenBody = options.body;
+    return {
+      headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+      async text() {
+        return JSON.stringify({ ok: true, source: 'ajax-flag' });
+      }
+    };
+  });
+
+  runtime.layui = {
+    $: {
+      ajax() {
+        throw new Error('bridge should intercept marked ajax request');
+      }
+    },
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+
+  adapter.installAjaxBridge();
+  runtime.layui.$.ajax({
+    url: '/api/form',
+    type: 'POST',
+    data: {
+      name: 'ajax-flag',
+      channel: 'native-test'
+    },
+    transferEncrypt: true,
+    success(res) {
+      successResponse = res;
+    },
+    complete(xhr, status) {
+      void xhr;
+      completeStatus = status;
+    }
+  });
+
+  await waitForAsyncBridge();
+  await waitForAsyncBridge();
+
+  assert.ok(seenBody.indexOf('transferPayload=') > -1);
+  assert.strictEqual(successResponse.ok, true);
+  assert.strictEqual(successResponse.source, 'ajax-flag');
+  assert.strictEqual(completeStatus, 'success');
+}
+
+async function testLayuiAjaxBridgeByHeaderMarker() {
+  let seenUrl = null;
+  let successResponse = null;
+  const runtime = createRuntime(async (url) => {
+    seenUrl = url;
+    return {
+      headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+      async text() {
+        return JSON.stringify({ ok: true, source: 'ajax-header' });
+      }
+    };
+  });
+
+  runtime.layui = {
+    $: {
+      ajax() {
+        throw new Error('bridge should intercept header-marked ajax request');
+      }
+    },
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+
+  adapter.installAjaxBridge();
+  runtime.layui.$.ajax({
+    url: '/api/query',
+    type: 'GET',
+    data: {
+      name: 'ajax-header'
+    },
+    headers: {
+      'X-Transfer-Encrypt-Request': 'true'
+    },
+    success(res) {
+      successResponse = res;
+    }
+  });
+
+  await waitForAsyncBridge();
+  await waitForAsyncBridge();
+
+  assert.ok(seenUrl.indexOf('transferPayload=') > -1);
+  assert.strictEqual(successResponse.ok, true);
+  assert.strictEqual(successResponse.source, 'ajax-header');
+}
+
 async function testLayuiTableRenderBridge() {
   let seenUrl = null;
   let tableSuccessResponse = null;
@@ -719,6 +835,8 @@ async function main() {
   await testLayuiFormBinding();
   await testLayuiFormBridgeByReturnedConfig();
   await testLayuiFormBridgeByFilterConfig();
+  await testLayuiAjaxBridgeByTransferEncryptFlag();
+  await testLayuiAjaxBridgeByHeaderMarker();
   await testLayuiTableRenderBridge();
   await testLayuiRenderFormByUrl();
   await testPublicKeyAutoPrefix04();

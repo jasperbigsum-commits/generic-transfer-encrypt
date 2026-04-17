@@ -170,6 +170,56 @@ async function runLayuiFormBridgeChecks(payload) {
   assert.equal(bridgeResponse.received.channel, 'bridge-probe');
 }
 
+async function runLayuiAjaxBridgeChecks(payload) {
+  log('Running layui ajax bridge checks...');
+  const runtime = createVanillaRuntime();
+
+  runtime.layui = {
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    },
+    $: {
+      ajax() {
+        throw new Error('ajax bridge should intercept marked layui.$.ajax requests');
+      }
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: payload.baseUrl,
+    publicKey: payload.publicKey,
+    smCrypto: runtime.smCrypto,
+    fetchImpl: fetch
+  });
+
+  adapter.installAjaxBridge();
+  const ajaxResponse = await new Promise((resolve, reject) => {
+    runtime.layui.$.ajax({
+      url: '/api/form',
+      type: 'POST',
+      data: {
+        name: 'probe-ajax',
+        channel: 'ajax-bridge-probe'
+      },
+      transferEncrypt: true,
+      success(result) {
+        resolve(result);
+      },
+      error(xhr, status, error) {
+        void xhr;
+        reject(error || new Error(status || 'ajax bridge probe failed'));
+      }
+    });
+  });
+
+  assert.equal(ajaxResponse.mode, 'form');
+  assert.equal(ajaxResponse.received.name, 'probe-ajax');
+  assert.equal(ajaxResponse.received.channel, 'ajax-bridge-probe');
+}
+
 async function runVue3RuntimeChecks(payload) {
   log('Running vue3 core checks...');
   const smCryptoScript = fs.readFileSync(
@@ -232,6 +282,7 @@ async function main() {
   const payload = await runPublicKeyChecks();
   await runVanillaRuntimeChecks(payload);
   await runLayuiFormBridgeChecks(payload);
+  await runLayuiAjaxBridgeChecks(payload);
   await runVue3RuntimeChecks(payload);
   log('Cross-stack smoke probe passed.');
 }

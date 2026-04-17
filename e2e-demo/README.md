@@ -22,6 +22,7 @@
 - 单文件上传
 - 多文件上传
 - 二进制下载
+- Layui `$.ajax(...)` 自动加密桥接
 - Layui `table.render({ url })` 自动加密桥接
 - Layui `form.on('submit') + table.reload()` 联动查询
 - Layui `renderForm(...)` 自动回填并执行 `form.render()`

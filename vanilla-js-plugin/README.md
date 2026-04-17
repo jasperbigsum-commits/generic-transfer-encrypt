@@ -105,6 +105,7 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 - `adapter.json(url, data, options)`
 - `adapter.form(url, data, options)`
 - `adapter.get(url, params, options)`
+- `adapter.installAjaxBridge()`
 - `adapter.installFormBridge(options?)`
 - `adapter.installTableBridge()`
 - `adapter.renderForm(filter, config)`
@@ -181,6 +182,47 @@ SDK 本身不会发起任何外网资源请求，适合内网离线部署。
 案例页面：
 
 - [layui-form-bridge-example.html](./example/layui-form-bridge-example.html)
+
+## Layui Ajax 自动加密桥接
+
+如果你们页面直接写 `layui.$.ajax(...)`，可以先安装 ajax bridge：
+
+```html
+<script>
+  layui.use(['layer'], function () {
+    var adapter = TransferEncryptCreateLayuiAdapter({
+      layui: layui,
+      baseUrl: 'http://localhost:8080',
+      publicKey: '服务端SM2公钥'
+    });
+
+    adapter.installAjaxBridge();
+
+    layui.$.ajax({
+      url: '/api/form',
+      type: 'POST',
+      data: {
+        name: 'alice',
+        channel: 'layui-ajax-bridge'
+      },
+      transferEncrypt: true,
+      success: function (response) {
+        console.log(response);
+      }
+    });
+  });
+</script>
+```
+
+说明：
+
+- `installAjaxBridge()` 不会劫持所有 ajax 请求
+- 只有显式标记的请求才会接管：
+  `transferEncrypt: true`
+  或 header 中带 `X-Transfer-Encrypt-Request: true`
+- 未标记的 `layui.$.ajax(...)` 会继续走原始逻辑
+- `GET/DELETE` 默认按 query 加密
+- `POST` 默认按 form 加密；若接口要求 JSON，可显式加 `contentType: 'application/json'` 或 `encryptBodyType: 'json'`
 
 ## Layui Table 自动加密桥接
 

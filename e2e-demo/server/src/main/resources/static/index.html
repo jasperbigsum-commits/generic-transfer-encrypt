@@ -216,6 +216,15 @@
     </article>
 
     <article class="card">
+      <h2>Layui Ajax Bridge</h2>
+      <p>验证 `layui.$.ajax` 在显式标记 `transferEncrypt: true` 后，自动走桥接加密请求。</p>
+      <input id="ajaxName" type="text" value="alice-ajax">
+      <div class="row">
+        <button data-action="ajaxBridge">发送 Ajax Bridge 请求</button>
+      </div>
+    </article>
+
+    <article class="card">
       <h2>Upload</h2>
       <p>验证文件上传不加密，但自动追加 `__md5_` 字段。</p>
       <input id="uploadFile" type="file">

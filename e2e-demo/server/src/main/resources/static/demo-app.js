@@ -64,6 +64,7 @@
         });
         layuiTable = layui.table;
         layuiForm = layui.form;
+        layuiAdapter.installAjaxBridge();
         layuiAdapter.installTableBridge();
         installDemoFormBridge();
         installTableSearchFormBridge();
@@ -100,6 +101,32 @@
         name: value,
         channel: 'query-demo'
       }
+    });
+  }
+
+  function handleAjaxBridge() {
+    if (!layuiAdapter || !layui || !layui.$ || typeof layui.$.ajax !== 'function') {
+      return Promise.reject(new Error('Layui ajax bridge 尚未初始化'));
+    }
+    var value = document.getElementById('ajaxName').value;
+    return new Promise(function (resolve, reject) {
+      layui.$.ajax({
+        url: '/api/form',
+        type: 'POST',
+        data: {
+          name: value,
+          channel: 'layui-ajax-bridge'
+        },
+        transferEncrypt: true,
+        loading: false,
+        success: function (response) {
+          resolve(response);
+        },
+        error: function (xhr, status, error) {
+          void xhr;
+          reject(error || new Error(status || 'ajax bridge request failed'));
+        }
+      });
     });
   }
 
@@ -168,6 +195,7 @@
   var handlers = {
     json: handleJson,
     query: handleQuery,
+    ajaxBridge: handleAjaxBridge,
     upload: handleUpload,
     uploadMulti: handleUploadMulti,
     download: handleDownload,
