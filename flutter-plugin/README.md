@@ -220,3 +220,62 @@ client.close();
 - `example/lib/main.dart`
 
 这个示例只演示调用方式，不依赖特定状态管理框架。
+
+## Android AVD 测试
+
+如果你手边没有 Android 真机，推荐直接使用 Android Emulator / AVD 调试，不要依赖已经退役的 `Windows Subsystem for Android`。
+
+建议准备项：
+
+- 已安装 `Flutter SDK`
+- 已安装 `Android SDK`
+- 已接受 Android licenses
+- 已安装至少一个 Android system image
+
+可先检查环境：
+
+```powershell
+flutter doctor -v
+flutter emulators
+```
+
+如果本机还没有可用 AVD，可用 Android Studio 创建，或者直接用命令行：
+
+```powershell
+sdkmanager "emulator" "platform-tools" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+avdmanager create avd -n flutter_api35 -k "system-images;android-35;google_apis;x86_64" -d "medium_phone"
+```
+
+查看和启动 AVD：
+
+```powershell
+emulator -list-avds
+emulator -avd flutter_api35
+```
+
+启动完成后，确认 Flutter 能看到模拟器：
+
+```powershell
+flutter devices
+```
+
+然后进入示例工程运行：
+
+```powershell
+cd .\example
+flutter pub get
+flutter run -d emulator-5554
+```
+
+如果你不确定设备 ID，也可以直接先运行：
+
+```powershell
+flutter run
+```
+
+常见排查：
+
+- `flutter doctor -v` 里 `Android toolchain` 未通过：先补 `ANDROID_HOME` / `ANDROID_SDK_ROOT`
+- `flutter devices` 看不到模拟器：确认 AVD 已真正启动，而不是只创建了配置
+- 首次 `build apk` 或 `flutter run` 速度较慢：通常是在下载 Gradle、NDK、CMake 或构建缓存
+- Windows 下建议优先使用 `x86_64` system image，并确认 `emulator -accel-check` 可通过

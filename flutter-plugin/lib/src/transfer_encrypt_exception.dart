@@ -13,10 +13,10 @@ class TransferEncryptException implements Exception {
 class TransferEncryptHttpException extends TransferEncryptException {
   const TransferEncryptHttpException({
     required this.statusCode,
-    required super.message,
+    required String message,
     this.responseBody,
     this.headers = const <String, String>{},
-  });
+  }) : super(message);
 
   final int statusCode;
   final Object? responseBody;

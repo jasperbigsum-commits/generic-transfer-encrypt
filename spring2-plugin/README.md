@@ -45,6 +45,29 @@
 </dependency>
 ```
 
+## 自建包构建与引用
+
+本地安装到 Maven 仓库：
+
+```powershell
+cd .\spring2-plugin
+mvn "-Dmaven.repo.local=.m2repo" clean install
+```
+
+发布到内部 Maven/Nexus：
+
+```powershell
+cd .\spring2-plugin
+mvn "-Dmaven.repo.local=.m2repo" clean deploy `
+  "-DaltDeploymentRepository=internal::default::https://your-maven-host/repository/releases"
+```
+
+业务项目中引用时，优先保持：
+
+- 插件版本与服务端协议版本同步
+- 业务项目自行提供 `spring-boot-starter-web`
+- 若使用 OpenFeign，再由业务项目显式引入 `spring-cloud-starter-openfeign`
+
 ## 配置
 
 ```yaml
@@ -141,3 +164,39 @@ Flutter 客户端位于：
 详细接入文档见：
 
 - `../flutter-plugin/docs/flutter-plugin-guide.md`
+
+## Spring 3 扩展兼容说明
+
+当前模块名叫 `spring2-plugin`，是因为它明确面向：
+
+- Spring Boot 2.x
+- Spring Framework 5.x
+- `javax.servlet.*`
+
+它不能在“不拆分适配层”的前提下零改动兼容 Spring Boot 3，主要原因有两类：
+
+1. Servlet 命名空间变化  
+   当前 Web 层大量使用 `javax.servlet.*`，而 Spring Boot 3 要求 `jakarta.servlet.*`。
+
+2. 自动配置装配方式差异  
+   当前资源文件使用 `META-INF/spring.factories`，Spring Boot 3 更推荐 `AutoConfiguration.imports`。
+
+推荐兼容策略不是在一个 starter 里硬塞两套依赖，而是：
+
+1. 抽 `core`  
+   放协议、模型、加密编解码，不依赖 Servlet。
+2. 保留 `spring2-plugin`
+   只承担 `javax.servlet` 版本适配。
+3. 新增 `spring3-plugin`
+   只承担 `jakarta.servlet` 版本适配。
+4. 视情况抽 `feign-common`
+   把 Feign 包装逻辑做成可复用模块，减少两边重复代码。
+
+当前仓库已经先做了一步依赖收敛：
+
+- 主代码已移除 `lombok`
+- 不再单独声明 `hutool-core` 直连依赖
+
+更完整的拆分建议见：
+
+- [docs/spring3-compatibility-plan.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\docs\spring3-compatibility-plan.md)

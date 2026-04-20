@@ -41,6 +41,59 @@
 - 首页：`http://localhost:8081/`
 - 公钥接口：`http://localhost:8081/demo/public-key`
 
+## 两类测试模式
+
+当前 E2E 提供两类模式：
+
+### 1. 手动联调版
+
+适合前端、Flutter、浏览器页面人工验证：
+
+```powershell
+.\scripts\run-e2e-demo.ps1
+```
+
+这条脚本会：
+
+1. 先把 `spring2-plugin` 安装到本地 Maven 仓库
+2. 再对 `e2e-demo/server` 执行 `spring-boot:run`
+3. 你再手工打开浏览器页面联调
+
+### 2. 自动探针版
+
+适合快速回归：
+
+```powershell
+.\scripts\run-e2e-cross-stack.ps1
+```
+
+这条脚本会：
+
+1. 安装 `spring2-plugin`
+2. 对 `e2e-demo/server` 执行 `package`
+3. 启动 fat jar
+4. 用 `e2e-demo/tests/client-cross-stack-probe.mjs` 执行自动校验
+
+## 当前版本边界
+
+当前仓库的 E2E 服务只有：
+
+- `server/`: Spring Boot 2 + `generic-transfer-encrypt-spring2-plugin`
+
+后续如果补 Spring Boot 3 版本，建议目录并列扩展为：
+
+```text
+e2e-demo/
+├─ server-spring2/
+├─ server-spring3/
+└─ tests/
+```
+
+并继续保留两类测试入口：
+
+- 手动联调版
+- 自动探针版
+
 ## 手动启动
 
 先安装本地 Spring 插件到同一个 Maven 本地仓库：

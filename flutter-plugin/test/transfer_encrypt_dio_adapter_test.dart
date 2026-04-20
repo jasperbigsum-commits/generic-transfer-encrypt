@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -7,14 +6,16 @@ import 'package:dart_sm/dart_sm.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:generic_transfer_encrypt_flutter/flutter_transfer_encrypt.dart';
 
+import 'test_support.dart';
+
 void main() {
   group('TransferEncryptDioAdapter', () {
     test('encrypts json request and decrypts encrypted response', () async {
       final keyPair = SM2.generateKeyPair();
       final dio = Dio();
-      dio.httpClientAdapter = _FakeDioAdapter((requestOptions) async {
-        final body = _asJsonMap(requestOptions.data);
-        final payload = _decodeTransferPayload(body['transferPayload'] as String);
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
+        final body = asJsonMap(requestOptions.data);
+        final payload = decodeTransferPayload(body['transferPayload'] as String);
         expect(body['originalContentType'], 'application/json');
         final sm4Key = SM2.decrypt(
           payload['encryptedKey'] as String,
@@ -23,16 +24,16 @@ void main() {
         );
         final plaintext = SM4.decrypt(
           payload['encryptedData'] as String,
-          key: _asciiToHex(sm4Key),
+          key: asciiToHex(sm4Key),
         );
 
         expect(jsonDecode(plaintext), <String, dynamic>{'name': 'dio'});
 
         final responseJson = jsonEncode(<String, dynamic>{
-          'transferPayload': _encodeTransferPayload(<String, dynamic>{
+          'transferPayload': encodeTransferPayload(<String, dynamic>{
             'encryptedData': SM4.encrypt(
               jsonEncode(<String, dynamic>{'ok': true}),
-              key: _asciiToHex(sm4Key),
+              key: asciiToHex(sm4Key),
             ),
             'contentMd5': md5
                 .convert(utf8.encode(jsonEncode(<String, dynamic>{'ok': true})))
@@ -66,9 +67,57 @@ void main() {
       expect(result, <String, dynamic>{'ok': true});
     });
 
+    test('encrypts form request and keeps options merge behavior', () async {
+      final keyPair = SM2.generateKeyPair();
+      final dio = Dio();
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
+        expect(requestOptions.method, 'POST');
+        expect(
+          requestOptions.headers[Headers.contentTypeHeader],
+          Headers.formUrlEncodedContentType,
+        );
+        expect(requestOptions.headers['x-trace-id'], 'trace-001');
+
+        final body = Uri.splitQueryString(requestOptions.data as String);
+        final payload = decodeTransferPayload(body['transferPayload'] as String);
+        final sm4Key = SM2.decrypt(
+          payload['encryptedKey'] as String,
+          keyPair.privateKey,
+          cipherMode: C1C3C2,
+        );
+        final plaintext = SM4.decrypt(
+          payload['encryptedData'] as String,
+          key: asciiToHex(sm4Key),
+        );
+        expect(plaintext, 'name=dio&age=18');
+
+        return ResponseBody.fromString(
+          jsonEncode(<String, dynamic>{'ok': true}),
+          200,
+          headers: <String, List<String>>{
+            'content-type': <String>['application/json;charset=UTF-8'],
+          },
+        );
+      });
+
+      final adapter = TransferEncryptDioAdapter(
+        dio: dio,
+        publicKey: keyPair.publicKey,
+        baseUrl: 'http://localhost:8080',
+      );
+
+      final result = await adapter.postForm(
+        '/api/form',
+        body: <String, dynamic>{'name': 'dio', 'age': 18},
+        headers: <String, dynamic>{'x-trace-id': 'trace-001'},
+      );
+
+      expect(result, <String, dynamic>{'ok': true});
+    });
+
     test('adds multipart md5 fields when uploading with dio', () async {
       final dio = Dio();
-      dio.httpClientAdapter = _FakeDioAdapter((requestOptions) async {
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
         final formData = requestOptions.data as FormData;
         final fields = Map<String, String>.fromEntries(formData.fields);
 
@@ -116,12 +165,77 @@ void main() {
       expect(result, <String, dynamic>{'uploaded': true});
     });
 
+    test('supports single-file upload convenience api with dio', () async {
+      final dio = Dio();
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
+        final formData = requestOptions.data as FormData;
+        final fields = Map<String, String>.fromEntries(formData.fields);
+
+        expect(formData.files, hasLength(1));
+        expect(
+          fields['__md5_file'],
+          md5.convert(const <int>[9, 8, 7]).toString(),
+        );
+
+        return ResponseBody.fromString(
+          jsonEncode(<String, dynamic>{'uploaded': true}),
+          200,
+          headers: <String, List<String>>{
+            'content-type': <String>['application/json;charset=UTF-8'],
+          },
+        );
+      });
+
+      final adapter = TransferEncryptDioAdapter(
+        dio: dio,
+        publicKey: 'mock-public-key',
+      );
+
+      final result = await adapter.uploadSingle(
+        url: 'http://localhost:8080/api/upload',
+        file: TransferEncryptFile(
+          fieldName: 'file',
+          filename: 'single.bin',
+          bytes: const <int>[9, 8, 7],
+        ),
+      );
+
+      expect(result, <String, dynamic>{'uploaded': true});
+    });
+
+    test('verifies binary download md5 header for dio requests', () async {
+      final bytes = utf8.encode('dio file');
+      final dio = Dio();
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
+        return ResponseBody.fromBytes(
+          bytes,
+          200,
+          headers: <String, List<String>>{
+            'content-type': <String>['application/octet-stream'],
+            'x-transfer-content-md5': <String>[md5.convert(bytes).toString()],
+          },
+        );
+      });
+
+      final adapter = TransferEncryptDioAdapter(
+        dio: dio,
+        publicKey: 'mock-public-key',
+      );
+
+      final response = await adapter.requestBinary(
+        url: 'http://localhost:8080/api/file',
+      );
+
+      expect(utf8.decode(response.bytes), 'dio file');
+      expect(response.contentMd5, md5.convert(bytes).toString());
+    });
+
     test('decodes binary json error body for dio requests', () async {
       final keyPair = SM2.generateKeyPair();
       final dio = Dio();
-      dio.httpClientAdapter = _FakeDioAdapter((requestOptions) async {
-        final body = _asJsonMap(requestOptions.data);
-        final payload = _decodeTransferPayload(body['transferPayload'] as String);
+      dio.httpClientAdapter = FakeDioAdapter((requestOptions) async {
+        final body = asJsonMap(requestOptions.data);
+        final payload = decodeTransferPayload(body['transferPayload'] as String);
         final sm4Key = SM2.decrypt(
           payload['encryptedKey'] as String,
           keyPair.privateKey,
@@ -135,10 +249,10 @@ void main() {
 
         return ResponseBody.fromString(
           jsonEncode(<String, dynamic>{
-            'transferPayload': _encodeTransferPayload(<String, dynamic>{
+            'transferPayload': encodeTransferPayload(<String, dynamic>{
               'encryptedData': SM4.encrypt(
                 errorJson,
-                key: _asciiToHex(sm4Key),
+                key: asciiToHex(sm4Key),
               ),
               'contentMd5': md5.convert(utf8.encode(errorJson)).toString(),
               'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -180,52 +294,4 @@ void main() {
       );
     });
   });
-}
-
-class _FakeDioAdapter implements HttpClientAdapter {
-  _FakeDioAdapter(this._handler);
-
-  final Future<ResponseBody> Function(RequestOptions requestOptions) _handler;
-
-  @override
-  void close({bool force = false}) {}
-
-  @override
-  Future<ResponseBody> fetch(
-    RequestOptions options,
-    Stream<Uint8List>? requestStream,
-    Future<void>? cancelFuture,
-  ) {
-    return _handler(options);
-  }
-}
-
-String _asciiToHex(String text) {
-  return text.codeUnits
-      .map((value) => value.toRadixString(16).padLeft(2, '0'))
-      .join();
-}
-
-Map<String, dynamic> _asJsonMap(Object? data) {
-  if (data is Map<String, dynamic>) {
-    return data;
-  }
-  if (data is String) {
-    return Map<String, dynamic>.from(jsonDecode(data) as Map);
-  }
-  return Map<String, dynamic>.from(data as Map);
-}
-
-String _encodeTransferPayload(Map<String, dynamic> envelope) {
-  return base64Url.encode(utf8.encode(jsonEncode(envelope))).replaceAll('=', '');
-}
-
-Map<String, dynamic> _decodeTransferPayload(String payload) {
-  var normalized = payload;
-  while (normalized.length % 4 != 0) {
-    normalized += '=';
-  }
-  return Map<String, dynamic>.from(
-    jsonDecode(utf8.decode(base64Url.decode(normalized))) as Map,
-  );
 }

@@ -16,8 +16,6 @@ import java.util.List;
 import java.util.Map;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
-
-import lombok.SneakyThrows;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 
@@ -138,13 +136,19 @@ public final class TransferWebUtils {
         return StringUtils.hasText(contentType) && contentType.toLowerCase().contains(candidate.toLowerCase());
     }
 
-    @SneakyThrows
     private static String encode(final String source) {
-        return URLEncoder.encode(source, "UTF-8");
+        try {
+            return URLEncoder.encode(source, StandardCharsets.UTF_8.name());
+        } catch (final UnsupportedEncodingException ex) {
+            throw new IllegalStateException("JVM 不支持 UTF-8 编码", ex);
+        }
     }
 
-    @SneakyThrows
     private static String decode(final String source) {
-        return URLDecoder.decode(source, "UTF-8");
+        try {
+            return URLDecoder.decode(source, StandardCharsets.UTF_8.name());
+        } catch (final UnsupportedEncodingException ex) {
+            throw new IllegalStateException("JVM 不支持 UTF-8 编码", ex);
+        }
     }
 }
