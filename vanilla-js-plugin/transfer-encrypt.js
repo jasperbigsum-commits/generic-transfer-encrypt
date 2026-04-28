@@ -419,8 +419,9 @@
     } else if (options.json !== undefined) {
       sm4Key = randomSm4Key();
       headers.set('Content-Type', 'application/json;charset=UTF-8');
+      const plainTextJson = typeof options.json === 'string' ? options.json : JSON.stringify(options.json);
       body = JSON.stringify(buildTransportWrapper(
-        this.encryptPayload(JSON.stringify(options.json), 'application/json', sm4Key),
+        this.encryptPayload(plainTextJson, 'application/json', sm4Key),
         'application/json'
       ));
     } else if (isPlainObject(body)) {

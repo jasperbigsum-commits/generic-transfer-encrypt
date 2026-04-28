@@ -522,6 +522,82 @@ async function testLayuiFormBridgeByFilterConfig() {
   assert.strictEqual(successResponse.source, 'filter-config');
 }
 
+async function testLayuiFormBridgeKeepsAdapterPerSubmitFilter() {
+  let encryptSubmitHandler = null;
+  const adapterCalls = [];
+  const runtime = createRuntime(async () => ({
+    headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+    async text() {
+      return JSON.stringify({ ok: true });
+    }
+  }));
+
+  runtime.layui = {
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    },
+    form: {
+      on(eventName, handler) {
+        if (eventName === 'submit(encrypt-submit)') {
+          encryptSubmitHandler = handler;
+        }
+      }
+    }
+  };
+
+  const adapterA = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+  adapterA.submitByBridgeConfig = async function (config, data) {
+    adapterCalls.push({
+      adapter: 'A',
+      config,
+      data
+    });
+  };
+
+  const adapterB = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+  adapterB.submitByBridgeConfig = async function (config, data) {
+    adapterCalls.push({
+      adapter: 'B',
+      config,
+      data
+    });
+  };
+
+  adapterA.installFormBridge();
+  runtime.layui.form.on('submit(encrypt-submit)', function () {
+    return {
+      url: '/api/form-bridge-a',
+      form: true
+    };
+  });
+
+  adapterB.installFormBridge();
+  runtime.layui.form.on('submit(other-submit)', function () {
+    return {
+      url: '/api/form-bridge-b',
+      form: true
+    };
+  });
+
+  assert.ok(typeof encryptSubmitHandler === 'function');
+  const submitResult = await encryptSubmitHandler({ field: { name: 'bridge' } });
+  assert.strictEqual(submitResult, false);
+  assert.strictEqual(adapterCalls.length, 1);
+  assert.strictEqual(adapterCalls[0].adapter, 'A');
+  assert.strictEqual(adapterCalls[0].config.url, '/api/form-bridge-a');
+  assert.strictEqual(adapterCalls[0].data.field.name, 'bridge');
+}
+
 async function testLayuiAjaxBridgeByTransferEncryptFlag() {
   let seenBody = null;
   let successResponse = null;
@@ -835,6 +911,7 @@ async function main() {
   await testLayuiFormBinding();
   await testLayuiFormBridgeByReturnedConfig();
   await testLayuiFormBridgeByFilterConfig();
+  await testLayuiFormBridgeKeepsAdapterPerSubmitFilter();
   await testLayuiAjaxBridgeByTransferEncryptFlag();
   await testLayuiAjaxBridgeByHeaderMarker();
   await testLayuiTableRenderBridge();

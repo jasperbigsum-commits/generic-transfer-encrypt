@@ -15,34 +15,58 @@ public class TransferEnvelope {
 
     private Long timestamp;
 
+    /**
+     * @return SM2-encrypted SM4 session key
+     */
     public String getEncryptedKey() {
         return encryptedKey;
     }
 
+    /**
+     * @param encryptedKey SM2-encrypted SM4 session key
+     */
     public void setEncryptedKey(final String encryptedKey) {
         this.encryptedKey = encryptedKey;
     }
 
+    /**
+     * @return SM4-encrypted business payload
+     */
     public String getEncryptedData() {
         return encryptedData;
     }
 
+    /**
+     * @param encryptedData SM4-encrypted business payload
+     */
     public void setEncryptedData(final String encryptedData) {
         this.encryptedData = encryptedData;
     }
 
+    /**
+     * @return hexadecimal MD5 of the plaintext payload
+     */
     public String getContentMd5() {
         return contentMd5;
     }
 
+    /**
+     * @param contentMd5 hexadecimal MD5 of the plaintext payload
+     */
     public void setContentMd5(final String contentMd5) {
         this.contentMd5 = contentMd5;
     }
 
+    /**
+     * @return sender-side epoch-millis timestamp
+     */
     public Long getTimestamp() {
         return timestamp;
     }
 
+    /**
+     * @param timestamp sender-side epoch-millis timestamp
+     */
     public void setTimestamp(final Long timestamp) {
         this.timestamp = timestamp;
     }

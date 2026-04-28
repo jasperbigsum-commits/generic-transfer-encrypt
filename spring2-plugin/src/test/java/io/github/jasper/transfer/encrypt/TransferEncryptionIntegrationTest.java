@@ -10,12 +10,13 @@ import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
 import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
 import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
+
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import lombok.SneakyThrows;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -172,7 +173,7 @@ class TransferEncryptionIntegrationTest {
         return objectMapper.readValue(plaintext, type);
     }
 
-    private String buildEnvelopeQuery(final TransferEnvelope envelope) {
+    private String buildEnvelopeQuery(final TransferEnvelope envelope) throws UnsupportedEncodingException {
         return TransferConstants.FIELD_TRANSFER_PAYLOAD + "="
                 + urlEncode(TransferJsonUtils.encodeTransportPayload(objectMapper, envelope))
                 + "&" + TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE + "="
@@ -193,8 +194,7 @@ class TransferEncryptionIntegrationTest {
                 String.valueOf(wrapper.get(TransferConstants.FIELD_TRANSFER_PAYLOAD)));
     }
 
-    @SneakyThrows
-    private String urlEncode(final String value) {
+    private String urlEncode(final String value) throws UnsupportedEncodingException {
         return java.net.URLEncoder.encode(value, "UTF-8");
     }
 

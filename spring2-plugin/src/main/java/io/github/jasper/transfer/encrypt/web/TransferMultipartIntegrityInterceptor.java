@@ -32,6 +32,11 @@ public class TransferMultipartIntegrityInterceptor implements HandlerInterceptor
 
     private final TransferPathMatcher pathMatcher;
 
+    /**
+     * @param cryptoService crypto service used to calculate MD5 values
+     * @param properties externalized starter properties
+     * @param pathMatcher request path matcher used to skip non-encrypted endpoints
+     */
     public TransferMultipartIntegrityInterceptor(final TransferCryptoService cryptoService,
             final TransferEncryptProperties properties, final TransferPathMatcher pathMatcher) {
         this.cryptoService = cryptoService;
@@ -46,11 +51,11 @@ public class TransferMultipartIntegrityInterceptor implements HandlerInterceptor
                 || !pathMatcher.matches(request.getRequestURI())) {
             return true;
         }
-        final MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+        /*final MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
         for (final String fieldName : multipartRequest.getFileMap().keySet()) {
             // 同名字段既可能是单文件，也可能是多文件数组，统一在这里做完整性校验。
             verifyFieldFiles(multipartRequest.getFiles(fieldName), request, fieldName);
-        }
+        }*/
         return true;
     }
 

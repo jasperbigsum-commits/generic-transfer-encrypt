@@ -54,6 +54,12 @@ cd .\spring2-plugin
 mvn "-Dmaven.repo.local=.m2repo" clean install
 ```
 
+安装时会同时生成并安装：
+
+- 主产物 `generic-transfer-encrypt-spring2-plugin-1.0.jar`
+- 源码包 `generic-transfer-encrypt-spring2-plugin-1.0-sources.jar`
+- 文档包 `generic-transfer-encrypt-spring2-plugin-1.0-javadoc.jar`
+
 发布到内部 Maven/Nexus：
 
 ```powershell

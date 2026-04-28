@@ -11,16 +11,13 @@ import java.util.Map;
 import io.github.jasper.transfer.encrypt.core.TransferConstants;
 import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
 import javax.servlet.http.HttpServletRequest;
+
+import io.github.jasper.transfer.encrypt.demo.dto.TransferTableDTO;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -41,9 +38,9 @@ public class DemoApiController {
         return payload;
     }
 
-    @PostMapping(value = "/api/json", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> json(@org.springframework.web.bind.annotation.RequestBody final Map<String, Object> body) {
-        final Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    @PostMapping(value = "/api/json")
+    public Map<String, Object> json(@RequestBody TransferTableDTO body) {
+        final Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("mode", "json");
         payload.put("received", body);
         payload.put("message", "JSON request decrypted successfully");

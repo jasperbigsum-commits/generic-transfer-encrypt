@@ -16,11 +16,20 @@ public class TransferPathMatcher {
 
     private final List<Pattern> excludePatterns;
 
+    /**
+     * @param properties externalized starter properties containing include and exclude regex lists
+     */
     public TransferPathMatcher(final TransferEncryptProperties properties) {
         this.includePatterns = compile(properties.getIncludePathRegex());
         this.excludePatterns = compile(properties.getExcludePathRegex());
     }
 
+    /**
+     * Evaluates the request URI against include rules first and exclude rules second.
+     *
+     * @param requestUri current request URI without scheme or host
+     * @return {@code true} when the URI should participate in transport-layer processing
+     */
     public boolean matches(final String requestUri) {
         return matchesAny(includePatterns, requestUri) && !matchesAny(excludePatterns, requestUri);
     }

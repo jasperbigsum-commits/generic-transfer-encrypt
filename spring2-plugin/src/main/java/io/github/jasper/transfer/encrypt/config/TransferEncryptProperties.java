@@ -38,6 +38,9 @@ public class TransferEncryptProperties {
 
     private int filterOrder = -10;
 
+    /**
+     * @return whether the transport encryption starter is enabled
+     */
     public boolean isEnabled() {
         return enabled;
     }
@@ -46,6 +49,9 @@ public class TransferEncryptProperties {
         this.enabled = enabled;
     }
 
+    /**
+     * @return whether annotated OpenFeign calls should be wrapped with the transport protocol
+     */
     public boolean isFeignEnabled() {
         return feignEnabled;
     }
@@ -54,6 +60,9 @@ public class TransferEncryptProperties {
         this.feignEnabled = feignEnabled;
     }
 
+    /**
+     * @return the SM2 private key used to decrypt request envelopes
+     */
     public String getPrivateKey() {
         return privateKey;
     }
@@ -62,6 +71,9 @@ public class TransferEncryptProperties {
         this.privateKey = privateKey;
     }
 
+    /**
+     * @return the default SM2 public key exposed to callers when no Feign alias-specific key is selected
+     */
     public String getPublicKey() {
         return publicKey;
     }
@@ -70,6 +82,9 @@ public class TransferEncryptProperties {
         this.publicKey = publicKey;
     }
 
+    /**
+     * @return include path regex expressions that define which HTTP endpoints participate in transport encryption
+     */
     public List<String> getIncludePathRegex() {
         return includePathRegex;
     }
@@ -78,6 +93,9 @@ public class TransferEncryptProperties {
         this.includePathRegex = includePathRegex;
     }
 
+    /**
+     * @return exclude path regex expressions evaluated after include rules
+     */
     public List<String> getExcludePathRegex() {
         return excludePathRegex;
     }
@@ -86,6 +104,9 @@ public class TransferEncryptProperties {
         this.excludePathRegex = excludePathRegex;
     }
 
+    /**
+     * @return multipart MD5 form-field prefix such as {@code __md5_}
+     */
     public String getMultipartMd5FieldPrefix() {
         return multipartMd5FieldPrefix;
     }
@@ -94,6 +115,9 @@ public class TransferEncryptProperties {
         this.multipartMd5FieldPrefix = multipartMd5FieldPrefix;
     }
 
+    /**
+     * @return downstream public-key mapping keyed by service id, host, or explicit Feign alias
+     */
     public Map<String, String> getFeignPublicKeys() {
         return feignPublicKeys;
     }
@@ -102,6 +126,9 @@ public class TransferEncryptProperties {
         this.feignPublicKeys = feignPublicKeys;
     }
 
+    /**
+     * @return servlet filter order used by {@code TransferEncryptionFilter}
+     */
     public int getFilterOrder() {
         return filterOrder;
     }

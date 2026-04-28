@@ -5,10 +5,17 @@ package io.github.jasper.transfer.encrypt.core;
  */
 public class TransferException extends RuntimeException {
 
+    /**
+     * @param message human-readable transport-layer failure message
+     */
     public TransferException(final String message) {
         super(message);
     }
 
+    /**
+     * @param message human-readable transport-layer failure message
+     * @param cause underlying failure cause
+     */
     public TransferException(final String message, final Throwable cause) {
         super(message, cause);
     }

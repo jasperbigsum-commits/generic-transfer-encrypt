@@ -24,13 +24,21 @@ public class TransferHttpServletRequestWrapper extends HttpServletRequestWrapper
 
     private final String queryString;
 
+    private final String contentType;
+
     public TransferHttpServletRequestWrapper(final HttpServletRequest request, final byte[] body,
             final Map<String, String[]> parameterMap, final String queryString) {
+        this(request, body, parameterMap, queryString, null);
+    }
+
+    public TransferHttpServletRequestWrapper(final HttpServletRequest request, final byte[] body,
+            final Map<String, String[]> parameterMap, final String queryString, final String contentType) {
         super(request);
         this.body = body == null ? new byte[0] : body;
         this.parameterMap = parameterMap == null ? Collections.<String, String[]>emptyMap()
                 : new LinkedHashMap<String, String[]>(parameterMap);
         this.queryString = queryString;
+        this.contentType = contentType;
     }
 
     @Override
@@ -77,5 +85,10 @@ public class TransferHttpServletRequestWrapper extends HttpServletRequestWrapper
     @Override
     public long getContentLengthLong() {
         return body.length;
+    }
+
+    @Override
+    public String getContentType() {
+        return contentType != null ? contentType : super.getContentType();
     }
 }

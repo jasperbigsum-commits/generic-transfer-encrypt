@@ -11,6 +11,9 @@ public class TransferEncryptWebMvcConfigurer implements WebMvcConfigurer {
 
     private final TransferMultipartIntegrityInterceptor multipartIntegrityInterceptor;
 
+    /**
+     * @param multipartIntegrityInterceptor interceptor that verifies multipart file MD5 values
+     */
     public TransferEncryptWebMvcConfigurer(final TransferMultipartIntegrityInterceptor multipartIntegrityInterceptor) {
         this.multipartIntegrityInterceptor = multipartIntegrityInterceptor;
     }

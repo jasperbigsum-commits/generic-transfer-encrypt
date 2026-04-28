@@ -20,7 +20,17 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface TransferEncryptedFeignClient {
 
+    /**
+     * Declares the downstream public-key alias to use for the current Feign interface or method.
+     *
+     * @return the alias in {@code transfer.encrypt.feign-public-keys}, or an empty string to fall back to host or global resolution
+     */
     String publicKeyAlias() default "";
 
+    /**
+     * Controls whether an extra {@code X-Transfer-Content-MD5} header should be added and verified.
+     *
+     * @return {@code true} to enable the additional MD5 header, {@code false} to only rely on the envelope-internal checksum
+     */
     boolean md5Enabled() default true;
 }

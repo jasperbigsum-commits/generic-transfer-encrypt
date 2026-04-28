@@ -9,6 +9,8 @@ import io.github.jasper.transfer.encrypt.model.TransferDecodedPayload;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
 import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
 import io.github.jasper.transfer.encrypt.util.TransferWebUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -22,8 +24,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Spring MVC 传输层过滤器。
@@ -38,7 +38,7 @@ import java.util.logging.Logger;
  */
 public class TransferEncryptionFilter extends OncePerRequestFilter {
 
-    private static final Logger log = Logger.getLogger(TransferEncryptionFilter.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(TransferEncryptionFilter.class.getName());
 
     private final ObjectMapper objectMapper;
 
@@ -72,8 +72,7 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
         } catch (final TransferException ex) {
             writeError(response, HttpServletResponse.SC_BAD_REQUEST, ex.getMessage());
         } catch (final Exception ex) {
-            log.log(Level.SEVERE,
-                    "Transfer encryption failed on [" + request.getMethod() + " " + request.getRequestURI() + "]", ex);
+            log.error("Transfer encryption failed on [{} {}]", request.getMethod(), request.getRequestURI(), ex);
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "传输层加解密处理异常");
         }
     }
@@ -94,30 +93,31 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
                     envelope.originalContentType);
             final String plaintext = payload.getPlaintext();
             final byte[] decryptedBody = plaintext.getBytes(StandardCharsets.UTF_8);
-            if (TransferWebUtils.isJsonContentType(contentType)) {
+            final String innerContentType = payload.getOriginalContentType();
+            if (TransferWebUtils.isJsonContentType(innerContentType)) {
                 return new RequestResolution(
                         new TransferHttpServletRequestWrapper(request, decryptedBody,
-                                originalParameters, request.getQueryString()),
+                                originalParameters, request.getQueryString(), innerContentType),
                         new TransferRequestContext(true, true, false, payload.getSm4Key()));
             }
 
-            final Map<String, String[]> decryptedParameters = new LinkedHashMap<String, String[]>(
+            final Map<String, String[]> decryptedParameters = new LinkedHashMap<>(
                     TransferWebUtils.parseQueryString(plaintext));
             mergePlainParameters(originalParameters, decryptedParameters);
             final String queryString = "GET".equalsIgnoreCase(request.getMethod()) ? plaintext : request.getQueryString();
             return new RequestResolution(new TransferHttpServletRequestWrapper(request, decryptedBody, decryptedParameters,
-                    queryString), new TransferRequestContext(true, true, false, payload.getSm4Key()));
+                    queryString, innerContentType), new TransferRequestContext(true, true, false, payload.getSm4Key()));
         }
 
         final String requestMd5 = request.getHeader(TransferConstants.HEADER_CONTENT_MD5);
         if (StringUtils.hasText(requestMd5) && originalBody.length > 0) {
             envelopeCodec.verifyMd5(originalBody, requestMd5);
             return new RequestResolution(new TransferHttpServletRequestWrapper(request, originalBody,
-                    originalParameters, request.getQueryString()),
+                    originalParameters, request.getQueryString(), contentType),
                     new TransferRequestContext(true, false, true, null));
         }
         return new RequestResolution(new TransferHttpServletRequestWrapper(request, originalBody, originalParameters,
-                request.getQueryString()),
+                request.getQueryString(), contentType),
                 new TransferRequestContext(true, false, false, null));
     }
 
