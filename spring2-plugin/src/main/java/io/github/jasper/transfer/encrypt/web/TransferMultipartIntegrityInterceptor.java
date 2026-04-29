@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.multipart.MultipartFile;
@@ -84,7 +83,7 @@ public class TransferMultipartIntegrityInterceptor implements HandlerInterceptor
         }
     }
 
-    private void verifySingleFile(final MultipartFile file, @Nullable final String expectedMd5, final String fieldName)
+    private void verifySingleFile(final MultipartFile file, final String expectedMd5, final String fieldName)
             throws IOException {
         if (!StringUtils.hasText(expectedMd5)) {
             return;
