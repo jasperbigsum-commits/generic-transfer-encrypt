@@ -18,15 +18,15 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(
         classes = E2EDemoApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT,
-        properties = {
-                "server.port=18081",
-                "demo.feign-base-url=http://localhost:18081"
-        })
+        webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 class E2EDemoIntegrationTest {
+
+    private static final int TEST_PORT = Integer.getInteger("e2e.demo.test.port", 48081);
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -37,9 +37,16 @@ class E2EDemoIntegrationTest {
     @Autowired
     private TransferEncryptProperties properties;
 
+    @DynamicPropertySource
+    static void registerProperties(final DynamicPropertyRegistry registry) {
+        registry.add("server.address", () -> "127.0.0.1");
+        registry.add("server.port", () -> TEST_PORT);
+        registry.add("demo.feign-base-url", () -> "http://localhost:" + TEST_PORT);
+    }
+
     @Test
     void shouldExposeBrowserCompatiblePublicKey() {
-        final ResponseEntity<Map> response = restTemplate.getForEntity("http://localhost:18081/demo/public-key", Map.class);
+        final ResponseEntity<Map> response = restTemplate.getForEntity(baseUrl("/demo/public-key"), Map.class);
         Assertions.assertEquals(200, response.getStatusCodeValue());
         final Object publicKey = response.getBody().get("publicKey");
         Assertions.assertTrue(String.valueOf(publicKey).matches("^04[0-9a-fA-F]{128}$"));
@@ -56,7 +63,7 @@ class E2EDemoIntegrationTest {
                 sm4Key);
 
         final ResponseEntity<byte[]> response = restTemplate.postForEntity(
-                "http://localhost:18081/api/json",
+                baseUrl("/api/json"),
                 jsonEntity(encryptedJsonRequest(envelope, MediaType.APPLICATION_JSON_VALUE)),
                 byte[].class);
 
@@ -130,7 +137,7 @@ class E2EDemoIntegrationTest {
     @Test
     void shouldCompleteEncryptedBrowserToFeignToDownstreamRoundTrip() throws Exception {
         final String sm4Key = codec().randomSm4Key();
-        final Map<String, Object> body = new LinkedHashMap<String, Object>();
+        final Map<String, Object> body = new LinkedHashMap<>();
         body.put("name", "alice-feign");
         body.put("from", "browser-test");
         final TransferEnvelope envelope = codec().createRequestEnvelope(
@@ -139,7 +146,7 @@ class E2EDemoIntegrationTest {
                 sm4Key);
 
         final ResponseEntity<byte[]> response = restTemplate.postForEntity(
-                "http://localhost:18081/api/feign/json",
+                baseUrl("/api/feign/json"),
                 jsonEntity(encryptedJsonRequest(envelope, MediaType.APPLICATION_JSON_VALUE)),
                 byte[].class);
 
@@ -155,7 +162,7 @@ class E2EDemoIntegrationTest {
     private HttpEntity<byte[]> jsonEntity(final byte[] body) {
         final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return new HttpEntity<byte[]>(body, headers);
+        return new HttpEntity<>(body, headers);
     }
 
     private Map<?, ?> decryptJsonResponse(final byte[] responseBody, final String sm4Key) throws Exception {
@@ -168,7 +175,7 @@ class E2EDemoIntegrationTest {
     }
 
     private byte[] encryptedJsonRequest(final TransferEnvelope envelope, final String originalContentType) throws Exception {
-        final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        final Map<String, Object> wrapper = new LinkedHashMap<>();
         wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
                 java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(envelope)));
         wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, originalContentType);
@@ -189,5 +196,9 @@ class E2EDemoIntegrationTest {
 
     private TransferEnvelopeCodec codec() {
         return new TransferEnvelopeCodec(new DefaultTransferCryptoService(properties));
+    }
+
+    private String baseUrl(final String path) {
+        return "http://localhost:" + TEST_PORT + path;
     }
 }

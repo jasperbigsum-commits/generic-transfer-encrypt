@@ -32,10 +32,36 @@ class DefaultTransferCryptoServiceTest {
         Assertions.assertEquals(sm4Key, service.decryptSm2Key(encryptedSm4Key.substring(2)));
     }
 
+    @Test
+    void shouldRoundTripSm2UsingRawPrivateKeyAndRawPublicPoint() {
+        final DefaultTransferCryptoService service = createService(KEY_PAIR.getRawPrivateKeyHex(),
+                KEY_PAIR.getRawPublicKeyHex());
+        final String sm4Key = service.randomSm4Key();
+
+        final String encryptedSm4Key = service.encryptSm2Key(sm4Key);
+
+        Assertions.assertEquals(sm4Key, service.decryptSm2Key(encryptedSm4Key));
+    }
+
+    @Test
+    void shouldEncryptSm2UsingRawPublicPointWithoutPrefix() {
+        final DefaultTransferCryptoService service = createService(KEY_PAIR.getRawPrivateKeyHex(),
+                KEY_PAIR.getRawPublicKeyHexWithoutPrefix());
+        final String sm4Key = service.randomSm4Key();
+
+        final String encryptedSm4Key = service.encryptSm2Key(sm4Key);
+
+        Assertions.assertEquals(sm4Key, service.decryptSm2Key(encryptedSm4Key));
+    }
+
     private DefaultTransferCryptoService createService(final Sm2TestKeySupport.Sm2KeyPair keyPair) {
+        return createService(keyPair.getPrivateKeyHex(), keyPair.getPublicKeyHex());
+    }
+
+    private DefaultTransferCryptoService createService(final String privateKeyHex, final String publicKeyHex) {
         final TransferEncryptProperties properties = new TransferEncryptProperties();
-        properties.setPrivateKey(keyPair.getPrivateKeyHex());
-        properties.setPublicKey(keyPair.getPublicKeyHex());
+        properties.setPrivateKey(privateKeyHex);
+        properties.setPublicKey(publicKeyHex);
         return new DefaultTransferCryptoService(properties);
     }
 }
