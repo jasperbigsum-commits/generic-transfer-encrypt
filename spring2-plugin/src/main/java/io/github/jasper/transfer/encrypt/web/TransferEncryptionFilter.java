@@ -21,8 +21,11 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -94,10 +97,14 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
             final String plaintext = payload.getPlaintext();
             final byte[] decryptedBody = plaintext.getBytes(StandardCharsets.UTF_8);
             final String innerContentType = payload.getOriginalContentType();
+            // 若请求内容是application/json， 则合并获取body相关信息
             if (TransferWebUtils.isJsonContentType(innerContentType)) {
+                final Map<String, String[]> decryptedParameters = resolveJsonParameters(plaintext);
+                // 将其从其他部分解析的内容合并为单个Parameters
+                mergePlainParameters(originalParameters, decryptedParameters);
                 return new RequestResolution(
                         new TransferHttpServletRequestWrapper(request, decryptedBody,
-                                originalParameters, request.getQueryString(), innerContentType),
+                                decryptedParameters, request.getQueryString(), innerContentType),
                         new TransferRequestContext(true, true, false, payload.getSm4Key()));
             }
 
@@ -121,10 +128,73 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
                 new TransferRequestContext(true, false, false, null));
     }
 
+    /**
+     * 解析JSON中转化为Parameters格式内容
+     * @param plaintext 明文
+     * @return 转换的Paramterss
+     */
+    private Map<String, String[]> resolveJsonParameters(final String plaintext) {
+        final Object jsonValue = TransferJsonUtils.readValue(objectMapper, plaintext, Object.class);
+        if (!(jsonValue instanceof Map)) {
+            return new LinkedHashMap<>();
+        }
+        final Map<?, ?> jsonMap = (Map<?, ?>) jsonValue;
+        final Map<String, String[]> parameters = new LinkedHashMap<>();
+        for (final Map.Entry<?, ?> entry : jsonMap.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            parameters.put(String.valueOf(entry.getKey()), toParameterValues(entry.getValue()));
+        }
+        return parameters;
+    }
+
+    /**
+     * 判断json转换对象参数values内容
+     * @param value 值对象
+     * @return 返回值String数组
+     */
+    private String[] toParameterValues(final Object value) {
+        if (value == null) {
+            return new String[] {""};
+        }
+        if (value instanceof Iterable) {
+            final List<String> values = new ArrayList<String>();
+            for (final Object item : (Iterable<?>) value) {
+                values.add(stringifyParameterValue(item));
+            }
+            return values.toArray(new String[0]);
+        }
+        if (value.getClass().isArray()) {
+            final int length = Array.getLength(value);
+            final String[] values = new String[length];
+            for (int index = 0; index < length; index++) {
+                values[index] = stringifyParameterValue(Array.get(value, index));
+            }
+            return values;
+        }
+        return new String[] {stringifyParameterValue(value)};
+    }
+
+    /**
+     * 格式化为ParameterValue
+     * @param value 值对象
+     * @return 返回String
+     */
+    private String stringifyParameterValue(final Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof CharSequence || value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        return TransferJsonUtils.writeString(objectMapper, value);
+    }
+
     private Map<String, String[]> resolveOriginalParameters(final HttpServletRequest request, final byte[] originalBody) {
         if (TransferWebUtils.isFormContentType(request.getContentType())) {
             final Map<String, String[]> formParameters =
-                    new LinkedHashMap<String, String[]>(TransferWebUtils.parseQueryString(
+                    new LinkedHashMap<>(TransferWebUtils.parseQueryString(
                             new String(originalBody, StandardCharsets.UTF_8)));
             final Map<String, String[]> queryParameters = TransferWebUtils.extractParameters(request);
             for (final Map.Entry<String, String[]> entry : queryParameters.entrySet()) {

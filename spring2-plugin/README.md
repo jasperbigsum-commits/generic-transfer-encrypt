@@ -15,6 +15,7 @@
 - 文件上传/下载默认跳过加密，仅校验/回传 `MD5`。
 - 通过路径正则配置启停。
 - `OpenFeign` 出站请求与入站响应遵循同一协议。
+- 支持 `@RequestParam("contractIds[]")` 这类数组命名风格，兼容 `query`、`form`、`JSON` 解密后的参数绑定。
 
 ## 协议
 
@@ -94,6 +95,55 @@ transfer:
       service-b: 下游服务B的SM2公钥
       service-c.internal: 下游服务C的SM2公钥
 ```
+
+## `@RequestParam("xxx[]")` 兼容说明
+
+当前版本已兼容这类常见数组参数绑定方式：
+
+```java
+@GetMapping("/contracts")
+public Object query(@RequestParam("contractIds[]") String[] contractIds) {
+    return contractIds.length;
+}
+```
+
+适用场景：
+
+- 加密 `GET/DELETE query`
+- 加密 `application/x-www-form-urlencoded`
+- 加密 `application/json`
+
+兼容规则：
+
+- Controller 若声明为 `@RequestParam("contractIds[]")`，请求中传 `contractIds` 或 `contractIds[]` 都可以绑定成功
+- 对于加密 `JSON` 请求，若顶层字段是数组，插件会在解密后同步为参数映射，再参与 `@RequestParam` 绑定
+
+例如下面几种请求都可绑定到 `@RequestParam("contractIds[]") String[] contractIds`：
+
+1. query 方式
+
+```text
+contractIds=101&contractIds=102
+```
+
+2. query 方式（带 `[]`）
+
+```text
+contractIds[]=101&contractIds[]=102
+```
+
+3. JSON 方式
+
+```json
+{
+  "contractIds": ["101", "102"]
+}
+```
+
+建议：
+
+- 新接入侧若没有历史包袱，优先统一使用不带 `[]` 的真实传输字段名，例如 `contractIds`
+- 若业务 Controller 已大量使用 `@RequestParam("xxx[]")`，当前插件会继续兼容，不需要为接入传输加密额外改 Controller 签名
 
 ## OpenFeign
 

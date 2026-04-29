@@ -53,7 +53,7 @@ public class TransferHttpServletRequestWrapper extends HttpServletRequestWrapper
 
     @Override
     public String getParameter(final String name) {
-        final String[] values = parameterMap.get(name);
+        final String[] values = resolveParameterValues(name);
         return values == null || values.length == 0 ? null : values[0];
     }
 
@@ -69,7 +69,7 @@ public class TransferHttpServletRequestWrapper extends HttpServletRequestWrapper
 
     @Override
     public String[] getParameterValues(final String name) {
-        return parameterMap.get(name);
+        return resolveParameterValues(name);
     }
 
     @Override
@@ -90,5 +90,24 @@ public class TransferHttpServletRequestWrapper extends HttpServletRequestWrapper
     @Override
     public String getContentType() {
         return contentType != null ? contentType : super.getContentType();
+    }
+
+    private String[] resolveParameterValues(final String name) {
+        final String[] directValues = parameterMap.get(name);
+        if (directValues != null) {
+            return directValues;
+        }
+        final String alias = resolveBracketAlias(name);
+        return alias == null ? null : parameterMap.get(alias);
+    }
+
+    private String resolveBracketAlias(final String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        if (name.endsWith("[]")) {
+            return name.substring(0, name.length() - 2);
+        }
+        return name + "[]";
     }
 }

@@ -107,6 +107,24 @@ class TransferEncryptionIntegrationTest {
     }
 
     @Test
+    void shouldBindBracketStyleRequestParamForEncryptedQueryRequest() throws Exception {
+        final String plaintext = "contractIds=101&contractIds=102";
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext,
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE, sm4Key);
+        final String queryString = buildEnvelopeQuery(envelope);
+
+        final MvcResult result = mockMvc.perform(get("/api/query-array?" + queryString))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals(2, responseBody.get("count"));
+        Assertions.assertEquals("101", responseBody.get("first"));
+    }
+
+    @Test
     void shouldDecryptFormRequestWithoutBreakingBinding() throws Exception {
         final String plaintext = "name=carol";
         final String sm4Key = codec().randomSm4Key();
@@ -122,6 +140,27 @@ class TransferEncryptionIntegrationTest {
 
         final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
         Assertions.assertEquals("carol", responseBody.get("name"));
+    }
+
+    @Test
+    void shouldBindBracketStyleRequestParamForEncryptedJsonRequest() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("contractIds", new String[] {"201", "202"});
+        final String plaintext = objectMapper.writeValueAsString(requestBody);
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext, MediaType.APPLICATION_JSON_VALUE,
+                sm4Key);
+
+        final MvcResult result = mockMvc.perform(post("/api/json-request-param-array")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(wrapEnvelope(envelope)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals(2, responseBody.get("count"));
+        Assertions.assertEquals("201", responseBody.get("first"));
     }
 
     @Test
@@ -225,10 +264,28 @@ class TransferEncryptionIntegrationTest {
             return Collections.singletonMap("name", name);
         }
 
+        @GetMapping(value = "/query-array", produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> queryArray(@RequestParam("contractIds[]") final String[] contractIds) {
+            final Map<String, Object> response = new LinkedHashMap<>();
+            response.put("count", contractIds.length);
+            response.put("first", contractIds[0]);
+            return response;
+        }
+
         @PostMapping(value = "/form", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
                 produces = MediaType.APPLICATION_JSON_VALUE)
         public Map<String, String> form(@RequestParam("name") final String name) {
             return Collections.singletonMap("name", name);
+        }
+
+        @PostMapping(value = "/json-request-param-array", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> jsonRequestParamArray(
+                @RequestParam("contractIds[]") final String[] contractIds) {
+            final Map<String, Object> response = new LinkedHashMap<>();
+            response.put("count", contractIds.length);
+            response.put("first", contractIds[0]);
+            return response;
         }
 
         @GetMapping(value = "/file", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
