@@ -16,7 +16,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>2.7.18</spring.boot.version>
         <spring.cloud.version>2021.0.9</spring.cloud.version>
-        <hutool.version>5.8.44</hutool.version>
         <bouncycastle.version>1.84</bouncycastle.version>
         <feign.version>11.10</feign.version>
     </properties>
@@ -27,13 +26,6 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring.boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>cn.hutool</groupId>
-                <artifactId>hutool-bom</artifactId>
-                <version>${hutool.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -90,10 +82,6 @@
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
             <version>${bouncycastle.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>cn.hutool</groupId>
-            <artifactId>hutool-crypto</artifactId>
         </dependency>
         <dependency>
             <groupId>javax.servlet</groupId>

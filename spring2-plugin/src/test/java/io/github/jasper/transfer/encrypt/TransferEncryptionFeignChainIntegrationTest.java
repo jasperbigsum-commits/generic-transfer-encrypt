@@ -1,8 +1,5 @@
 package io.github.jasper.transfer.encrypt;
 
-import cn.hutool.core.util.HexUtil;
-import cn.hutool.crypto.SmUtil;
-import cn.hutool.crypto.asymmetric.SM2;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jasper.transfer.encrypt.annotation.TransferEncryptedFeignClient;
 import io.github.jasper.transfer.encrypt.config.TransferEncryptProperties;
@@ -12,49 +9,40 @@ import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
 import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
 import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
-import java.io.IOException;
-import java.net.ServerSocket;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.http.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @SpringBootTest(classes = TransferEncryptionFeignChainIntegrationTest.TestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class TransferEncryptionFeignChainIntegrationTest {
 
-    private static final SM2 TEST_SM2 = SmUtil.sm2();
+    private static final Sm2TestKeySupport.Sm2KeyPair TEST_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
 
-    private static final SM2 WRONG_SM2 = SmUtil.sm2();
+    private static final Sm2TestKeySupport.Sm2KeyPair WRONG_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
 
-    private static final String PRIVATE_KEY = HexUtil.encodeHexStr(TEST_SM2.getPrivateKey().getEncoded());
+    private static final String PRIVATE_KEY = TEST_KEY_PAIR.getPrivateKeyHex();
 
-    private static final String PUBLIC_KEY = HexUtil.encodeHexStr(TEST_SM2.getPublicKey().getEncoded());
+    private static final String PUBLIC_KEY = TEST_KEY_PAIR.getPublicKeyHex();
 
     private static final int TEST_PORT = findAvailablePort();
 
@@ -66,12 +54,12 @@ class TransferEncryptionFeignChainIntegrationTest {
         registry.add("server.port", () -> TEST_PORT);
         registry.add("test.server.url", () -> "http://localhost:" + TEST_PORT);
         registry.add("transfer.encrypt.private-key", () -> PRIVATE_KEY);
-        registry.add("transfer.encrypt.public-key", () -> HexUtil.encodeHexStr(WRONG_SM2.getPublicKey().getEncoded()));
+        registry.add("transfer.encrypt.public-key", WRONG_KEY_PAIR::getPublicKeyHex);
         registry.add("transfer.encrypt.include-path-regex[0]", () -> "^/gateway/.*$");
         registry.add("transfer.encrypt.include-path-regex[1]", () -> "^/downstream/.*$");
         registry.add("transfer.encrypt.feign-enabled", () -> "true");
-        registry.add("transfer.encrypt.feign-public-keys.localhost", () -> HexUtil.encodeHexStr(WRONG_SM2.getPublicKey().getEncoded()));
-        registry.add("transfer.encrypt.feign-public-keys.downstream-wrong", () -> HexUtil.encodeHexStr(WRONG_SM2.getPublicKey().getEncoded()));
+        registry.add("transfer.encrypt.feign-public-keys.localhost", WRONG_KEY_PAIR::getPublicKeyHex);
+        registry.add("transfer.encrypt.feign-public-keys.downstream-wrong", WRONG_KEY_PAIR::getPublicKeyHex);
         registry.add("transfer.encrypt.feign-public-keys.downstream-correct", () -> PUBLIC_KEY);
     }
 
@@ -173,7 +161,7 @@ class TransferEncryptionFeignChainIntegrationTest {
     private HttpEntity<byte[]> jsonEntity(final byte[] body) {
         final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return new HttpEntity<byte[]>(body, headers);
+        return new HttpEntity<>(body, headers);
     }
 
     private String baseUrl(final String path) {
@@ -209,13 +197,8 @@ class TransferEncryptionFeignChainIntegrationTest {
     }
 
     private static int findAvailablePort() {
-        try {
-            final ServerSocket socket = new ServerSocket(0);
-            try {
-                return socket.getLocalPort();
-            } finally {
-                socket.close();
-            }
+        try (final ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
         } catch (final IOException ex) {
             throw new IllegalStateException("无法分配测试端口", ex);
         }
@@ -289,7 +272,7 @@ class TransferEncryptionFeignChainIntegrationTest {
         @PostMapping(value = "/md5-enabled", consumes = MediaType.APPLICATION_JSON_VALUE,
                 produces = MediaType.APPLICATION_JSON_VALUE)
         public Map<String, Object> md5Enabled(@RequestBody final Map<String, Object> requestBody) {
-            return Collections.<String, Object>singletonMap("body", encryptedBridgeClient.md5Enabled());
+            return Collections.singletonMap("body", encryptedBridgeClient.md5Enabled());
         }
 
         @PostMapping(value = "/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE,

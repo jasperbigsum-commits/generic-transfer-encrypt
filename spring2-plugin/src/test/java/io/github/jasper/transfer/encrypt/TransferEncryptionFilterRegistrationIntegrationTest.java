@@ -1,8 +1,4 @@
 package io.github.jasper.transfer.encrypt;
-
-import cn.hutool.core.util.HexUtil;
-import cn.hutool.crypto.SmUtil;
-import cn.hutool.crypto.asymmetric.SM2;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.jasper.transfer.encrypt.config.TransferEncryptProperties;
 import io.github.jasper.transfer.encrypt.core.TransferConstants;
@@ -47,11 +43,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class TransferEncryptionFilterRegistrationIntegrationTest {
 
-    private static final SM2 TEST_SM2 = SmUtil.sm2();
+    private static final Sm2TestKeySupport.Sm2KeyPair TEST_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
 
-    private static final String PRIVATE_KEY = HexUtil.encodeHexStr(TEST_SM2.getPrivateKey().getEncoded());
+    private static final String PRIVATE_KEY = TEST_KEY_PAIR.getPrivateKeyHex();
 
-    private static final String PUBLIC_KEY = HexUtil.encodeHexStr(TEST_SM2.getPublicKey().getEncoded());
+    private static final String PUBLIC_KEY = TEST_KEY_PAIR.getPublicKeyHex();
 
     @Autowired
     private MockMvc mockMvc;
