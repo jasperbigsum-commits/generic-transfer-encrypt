@@ -75,6 +75,11 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
         } catch (final TransferException ex) {
             writeError(response, HttpServletResponse.SC_BAD_REQUEST, ex.getMessage());
         } catch (final Exception ex) {
+            if (response.isCommitted() || isClientAbort(ex)) {
+                log.warn("Skip transfer error response on [{} {}] because the client connection is already closed",
+                        request.getMethod(), request.getRequestURI(), ex);
+                return;
+            }
             log.error("Transfer encryption failed on [{} {}]", request.getMethod(), request.getRequestURI(), ex);
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "传输层加解密处理异常");
         }
@@ -283,6 +288,10 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
 
     private void writeError(final HttpServletResponse response, final int status, final String message)
             throws IOException {
+        if (response.isCommitted()) {
+            log.warn("Skip transfer error response because the servlet response has already been committed");
+            return;
+        }
         response.resetBuffer();
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -290,6 +299,27 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
         response.getWriter().write(TransferJsonUtils.writeString(objectMapper,
                 new ErrorBody("TRANSFER_ENCRYPT_ERROR", message)));
         response.flushBuffer();
+    }
+
+    private boolean isClientAbort(final Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            final String simpleName = current.getClass().getSimpleName();
+            if ("ClientAbortException".equals(simpleName) || "EofException".equals(simpleName)
+                    || "EOFException".equals(simpleName)) {
+                return true;
+            }
+            final String message = current.getMessage();
+            if (message != null) {
+                final String normalized = message.toLowerCase();
+                if (normalized.contains("broken pipe") || normalized.contains("connection reset")
+                        || normalized.contains("forcibly closed")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String firstParameter(final Map<String, String[]> parameters, final String name) {
