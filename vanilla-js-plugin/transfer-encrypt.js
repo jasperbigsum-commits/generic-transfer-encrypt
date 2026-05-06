@@ -540,6 +540,10 @@
       method: method,
       headers: headers
     };
+    if (isFormData(requestConfig.data)) {
+      requestOptions.body = requestConfig.data;
+      return requestOptions;
+    }
 
     if (requestConfig.body) {
       requestOptions.body = requestConfig.body;

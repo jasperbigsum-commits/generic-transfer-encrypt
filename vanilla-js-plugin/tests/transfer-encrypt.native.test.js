@@ -714,6 +714,65 @@ async function testLayuiAjaxBridgeByHeaderMarker() {
   assert.strictEqual(successResponse.source, 'ajax-header');
 }
 
+async function testLayuiAjaxBridgeKeepsFormDataBody() {
+  let seenBody = null;
+  let successResponse = null;
+  const runtime = createRuntime(async (url, options) => {
+    void url;
+    seenBody = options.body;
+    return {
+      headers: new HeadersPolyfill({ 'Content-Type': 'application/json' }),
+      async text() {
+        return JSON.stringify({ ok: true, source: 'ajax-formdata' });
+      }
+    };
+  });
+
+  runtime.layui = {
+    $: {
+      ajax() {
+        throw new Error('bridge should intercept marked ajax request');
+      }
+    },
+    layer: {
+      load() { return 1; },
+      close() {},
+      msg() {}
+    }
+  };
+
+  const adapter = runtime.TransferEncryptCreateLayuiAdapter({
+    layui: runtime.layui,
+    baseUrl: 'http://localhost:8080',
+    publicKey: TEST_PUBLIC_KEY
+  });
+
+  const formData = new runtime.FormData();
+  formData.append('name', 'bridge');
+  formData.append('channel', 'native-test');
+
+  adapter.installAjaxBridge();
+  runtime.layui.$.ajax({
+    url: '/api/form-data',
+    type: 'POST',
+    data: formData,
+    dataType: 'json',
+    transferEncrypt: true,
+    success(res) {
+      successResponse = res;
+    }
+  });
+
+  await waitForAsyncBridge();
+  await waitForAsyncBridge();
+
+  assert.ok(seenBody instanceof runtime.FormData);
+  assert.strictEqual(seenBody.get('name'), 'bridge');
+  assert.strictEqual(seenBody.get('channel'), 'native-test');
+  assert.strictEqual(successResponse.ok, true);
+  assert.strictEqual(successResponse.source, 'ajax-formdata');
+}
+
 async function testLayuiTableRenderBridge() {
   let seenUrl = null;
   let tableSuccessResponse = null;
@@ -914,6 +973,7 @@ async function main() {
   await testLayuiFormBridgeKeepsAdapterPerSubmitFilter();
   await testLayuiAjaxBridgeByTransferEncryptFlag();
   await testLayuiAjaxBridgeByHeaderMarker();
+  await testLayuiAjaxBridgeKeepsFormDataBody();
   await testLayuiTableRenderBridge();
   await testLayuiRenderFormByUrl();
   await testPublicKeyAutoPrefix04();
