@@ -50,11 +50,11 @@ public class TransferMultipartIntegrityInterceptor implements HandlerInterceptor
                 || !pathMatcher.matches(request.getRequestURI())) {
             return true;
         }
-        /*final MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
+        final MultipartHttpServletRequest multipartRequest = (MultipartHttpServletRequest) request;
         for (final String fieldName : multipartRequest.getFileMap().keySet()) {
             // 同名字段既可能是单文件，也可能是多文件数组，统一在这里做完整性校验。
             verifyFieldFiles(multipartRequest.getFiles(fieldName), request, fieldName);
-        }*/
+        }
         return true;
     }
 
@@ -77,7 +77,8 @@ public class TransferMultipartIntegrityInterceptor implements HandlerInterceptor
         for (int index = 0; index < files.size(); index++) {
             final String expectedMd5 = resolveIndexedExpectedMd5(request, fieldName, index);
             if (!StringUtils.hasText(expectedMd5)) {
-                throw new TransferException("字段 " + fieldName + " 的第 " + index + " 个文件缺少 MD5 参数");
+                // throw new TransferException("字段 " + fieldName + " 的第 " + index + " 个文件缺少 MD5 参数");
+                continue;
             }
             verifySingleFile(files.get(index), expectedMd5, fieldName + "[" + index + "]");
         }

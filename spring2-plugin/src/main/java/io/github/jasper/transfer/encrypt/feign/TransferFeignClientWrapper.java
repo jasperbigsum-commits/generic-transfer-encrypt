@@ -111,7 +111,7 @@ public class TransferFeignClientWrapper implements Client {
             final String sm4Key = envelopeCodec.randomSm4Key();
             final TransferEnvelope envelope = envelopeCodec.createRequestEnvelope(plaintext, contentType, sm4Key,
                     publicKey);
-            final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+            final Map<String, Object> wrapper = new LinkedHashMap<>();
             wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
                     TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
             wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, contentType);
