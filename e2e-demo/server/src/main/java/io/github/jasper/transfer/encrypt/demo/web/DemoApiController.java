@@ -13,6 +13,8 @@ import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
 import javax.servlet.http.HttpServletRequest;
 
 import io.github.jasper.transfer.encrypt.demo.dto.TransferTableDTO;
+import org.bouncycastle.jcajce.provider.digest.SHA512;
+import org.bouncycastle.util.encoders.Hex;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -107,7 +109,9 @@ public class DemoApiController {
         payload.put("fileName", file.getOriginalFilename());
         payload.put("size", file.getSize());
         payload.put("extra", params);
-        payload.put("preview", new String(file.getBytes(), StandardCharsets.UTF_8));
+        SHA512.Digest digest = new SHA512.Digest();
+        byte[] hash512 = digest.digest(file.getBytes());
+        payload.put("preview", new String(Hex.encode(hash512), StandardCharsets.UTF_8));
         return payload;
     }
 
