@@ -12,7 +12,7 @@
 - 选择性 OpenFeign 出站加密
 - 通过自动配置方式无侵入接入业务服务
 
-这不是 Spring Boot 3 模块，也不是通用 Servlet 抽象层。这里的代码必须继续围绕：
+这不是 Spring Boot 3 模块，也不是协议公共核心模块。协议、加密、Feign、配置属性、JSON 参数展开、请求/响应信封处理等公共逻辑应优先放在 `../transfer-encrypt-core`。这里的代码必须继续围绕：
 
 - Spring Boot `2.7.x`
 - Spring Framework `5.x`
@@ -28,29 +28,31 @@
 
 核心协议与加密：
 
-- `src/main/java/io/github/jasper/transfer/encrypt/core/TransferEnvelopeCodec.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/core/TransferConstants.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/crypto/TransferCryptoService.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/crypto/DefaultTransferCryptoService.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/core/TransferEnvelopeCodec.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/core/TransferConstants.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/crypto/TransferCryptoService.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/crypto/DefaultTransferCryptoService.java`
 
 Web 入站/出站链路：
 
 - `src/main/java/io/github/jasper/transfer/encrypt/web/TransferEncryptionFilter.java`
 - `src/main/java/io/github/jasper/transfer/encrypt/web/TransferHttpServletRequestWrapper.java`
 - `src/main/java/io/github/jasper/transfer/encrypt/web/TransferMultipartIntegrityInterceptor.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/web/TransferPathMatcher.java`
+- `src/main/java/io/github/jasper/transfer/encrypt/web/TransferServletWebUtils.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/web/TransferPathMatcher.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/web/TransferWebExchangeProcessor.java`
 
 配置与 MVC 挂载：
 
-- `src/main/java/io/github/jasper/transfer/encrypt/config/TransferEncryptProperties.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/config/TransferEncryptProperties.java`
 - `src/main/java/io/github/jasper/transfer/encrypt/config/TransferEncryptWebMvcConfigurer.java`
 
 Feign 接管链路：
 
-- `src/main/java/io/github/jasper/transfer/encrypt/annotation/TransferEncryptedFeignClient.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignBeanPostProcessor.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignClientWrapper.java`
-- `src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignInvocationContext.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/annotation/TransferEncryptedFeignClient.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignBeanPostProcessor.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignClientWrapper.java`
+- `../transfer-encrypt-core/src/main/java/io/github/jasper/transfer/encrypt/feign/TransferFeignInvocationContext.java`
 
 ## 3. 必须守住的行为
 
@@ -118,16 +120,17 @@ Feign 不是全量强制加密，当前规则必须保持：
 4. 不要重新引入 Lombok。
 5. 优先保持已有 `ObjectMapper`、`FilterRegistrationBean`、Feign 接管方式不变，除非明确修复缺陷。
 6. 任何影响协议的改动，都应假设会波及根仓库里的 JS / Vue / Flutter / E2E 模块。
+7. 不要把已经抽到 `transfer-encrypt-core` 的公共逻辑复制回本模块。
 
 ## 6. 常见改动定位
 
 - 请求体解密、响应加密异常：先看 `web/TransferEncryptionFilter.java`
-- query/form 参数绑定异常：先看 `web/TransferHttpServletRequestWrapper.java` 与 `util/TransferWebUtils.java`
-- 路径命中异常：先看 `web/TransferPathMatcher.java` 与 `config/TransferEncryptProperties.java`
+- query/form 参数绑定异常：先看 `web/TransferHttpServletRequestWrapper.java` 与 `../transfer-encrypt-core/.../web/TransferWebExchangeProcessor.java`
+- 路径命中异常：先看 `../transfer-encrypt-core/.../web/TransferPathMatcher.java` 与 `../transfer-encrypt-core/.../config/TransferEncryptProperties.java`
 - 上传 MD5 校验异常：先看 `web/TransferMultipartIntegrityInterceptor.java`
-- 信封编码、SM2/SM4、MD5 逻辑异常：先看 `core/TransferEnvelopeCodec.java` 与 `crypto/`
-- Feign 没有被接管或接管过度：先看 `feign/TransferFeignBeanPostProcessor.java`
-- Feign 请求/响应信封处理异常：先看 `feign/TransferFeignClientWrapper.java`
+- 信封编码、SM2/SM4、MD5 逻辑异常：先看 `../transfer-encrypt-core/.../core/TransferEnvelopeCodec.java` 与 `../transfer-encrypt-core/.../crypto/`
+- Feign 没有被接管或接管过度：先看 `../transfer-encrypt-core/.../feign/TransferFeignBeanPostProcessor.java`
+- Feign 请求/响应信封处理异常：先看 `../transfer-encrypt-core/.../feign/TransferFeignClientWrapper.java`
 - 自动配置失效：先看 `autoconfigure/TransferEncryptAutoConfiguration.java` 与 `META-INF/spring.factories`
 
 ## 7. 测试入口
@@ -152,15 +155,13 @@ Feign 不是全量强制加密，当前规则必须保持：
 模块主验证命令：
 
 ```powershell
-cd .\spring2-plugin
-mvn "-Dmaven.repo.local=.m2repo" test
+mvn "-Dmaven.repo.local=.m2repo" -pl spring2-plugin -am test
 ```
 
 打包验证：
 
 ```powershell
-cd .\spring2-plugin
-mvn "-Dmaven.repo.local=.m2repo" -DskipTests package
+mvn "-Dmaven.repo.local=.m2repo" -pl spring2-plugin -am -DskipTests package
 ```
 
 如果改动影响到端到端链路，继续验证：

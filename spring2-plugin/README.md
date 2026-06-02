@@ -2,6 +2,10 @@
 
 面向 Spring Boot 2 / Spring Web MVC 的通用传输层加密插件。
 
+本 starter 只保留 Spring Boot 2 / `javax.servlet.*` 适配层。协议、加密、配置、Feign 包装和 servlet-neutral 请求/响应处理逻辑来自公共模块：
+
+- `generic-transfer-encrypt-core`
+
 详细架构图与请求时序见：
 
 - [docs/transport-encryption-architecture.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\docs\transport-encryption-architecture.md)
@@ -51,8 +55,7 @@
 本地安装到 Maven 仓库：
 
 ```powershell
-cd .\spring2-plugin
-mvn "-Dmaven.repo.local=.m2repo" clean install
+mvn "-Dmaven.repo.local=.m2repo" -pl spring2-plugin -am clean install
 ```
 
 安装时会同时生成并安装：
@@ -69,7 +72,7 @@ mvn "-Dmaven.repo.local=.m2repo" clean deploy `
   "-DaltDeploymentRepository=internal::default::https://your-maven-host/repository/releases"
 ```
 
-业务项目中引用时，优先保持：
+该 starter 会传递依赖 `generic-transfer-encrypt-core`。业务项目中引用时，优先保持：
 
 - 插件版本与服务端协议版本同步
 - 业务项目自行提供 `spring-boot-starter-web`
@@ -237,19 +240,18 @@ Flutter 客户端位于：
 2. 自动配置装配方式差异  
    当前资源文件使用 `META-INF/spring.factories`，Spring Boot 3 更推荐 `AutoConfiguration.imports`。
 
-推荐兼容策略不是在一个 starter 里硬塞两套依赖，而是：
+当前仓库已经按这个策略落地：
 
-1. 抽 `core`  
-   放协议、模型、加密编解码，不依赖 Servlet。
-2. 保留 `spring2-plugin`
+1. `transfer-encrypt-core`  
+   放协议、模型、加密编解码、Feign 包装、通用 Web 交换处理，不依赖 Servlet 命名空间。
+2. `spring2-plugin`
    只承担 `javax.servlet` 版本适配。
-3. 新增 `spring3-plugin`
+3. `spring3-plugin`
    只承担 `jakarta.servlet` 版本适配。
-4. 视情况抽 `feign-common`
-   把 Feign 包装逻辑做成可复用模块，减少两边重复代码。
 
 当前仓库已经先做了一步依赖收敛：
 
+- 公共核心代码已抽到 `transfer-encrypt-core`
 - 主代码已移除 `lombok`
 - 不再单独声明 `hutool-core` 直连依赖
 

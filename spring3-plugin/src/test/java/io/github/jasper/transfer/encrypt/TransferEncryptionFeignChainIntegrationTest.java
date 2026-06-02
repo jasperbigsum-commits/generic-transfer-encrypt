@@ -1,0 +1,335 @@
+package io.github.jasper.transfer.encrypt;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.jasper.transfer.encrypt.annotation.TransferEncryptedFeignClient;
+import io.github.jasper.transfer.encrypt.config.TransferEncryptProperties;
+import io.github.jasper.transfer.encrypt.core.TransferConstants;
+import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
+import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
+import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
+import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
+import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.*;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@SpringBootTest(classes = TransferEncryptionFeignChainIntegrationTest.TestApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class TransferEncryptionFeignChainIntegrationTest {
+
+    private static final Sm2TestKeySupport.Sm2KeyPair TEST_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
+
+    private static final Sm2TestKeySupport.Sm2KeyPair WRONG_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
+
+    private static final String PRIVATE_KEY = TEST_KEY_PAIR.getPrivateKeyHex();
+
+    private static final String PUBLIC_KEY = TEST_KEY_PAIR.getPublicKeyHex();
+
+    private static final int TEST_PORT = findAvailablePort();
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @DynamicPropertySource
+    static void registerProperties(final DynamicPropertyRegistry registry) {
+        registry.add("server.port", () -> TEST_PORT);
+        registry.add("test.server.url", () -> "http://localhost:" + TEST_PORT);
+        registry.add("transfer.encrypt.private-key", () -> PRIVATE_KEY);
+        registry.add("transfer.encrypt.public-key", WRONG_KEY_PAIR::getPublicKeyHex);
+        registry.add("transfer.encrypt.include-path-regex[0]", () -> "^/gateway/.*$");
+        registry.add("transfer.encrypt.include-path-regex[1]", () -> "^/downstream/.*$");
+        registry.add("transfer.encrypt.feign-enabled", () -> "true");
+        registry.add("transfer.encrypt.feign-public-keys.localhost", WRONG_KEY_PAIR::getPublicKeyHex);
+        registry.add("transfer.encrypt.feign-public-keys.downstream-wrong", WRONG_KEY_PAIR::getPublicKeyHex);
+        registry.add("transfer.encrypt.feign-public-keys.downstream-correct", () -> PUBLIC_KEY);
+    }
+
+    @Test
+    void shouldCompleteThreeHopFlowWithAnnotatedFeignClient() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "triple-hop");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final ResponseEntity<byte[]> response = restTemplate().postForEntity(
+                baseUrl("/gateway/encrypted"),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
+                byte[].class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        Assertions.assertEquals("true", response.getHeaders().getFirst(TransferConstants.HEADER_TRANSFER_ENCRYPTED));
+        final Map<?, ?> gatewayResponse = decryptJsonResponse(response.getBody(), sm4Key, Map.class);
+        final Map<?, ?> downstream = (Map<?, ?>) gatewayResponse.get("downstream");
+        Assertions.assertEquals("triple-hop", downstream.get("name"));
+        Assertions.assertEquals(Boolean.TRUE, downstream.get("encryptedRequest"));
+    }
+
+    @Test
+    void shouldKeepPlainFeignClientUnwrapped() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "plain-hop");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final ResponseEntity<byte[]> response = restTemplate().postForEntity(
+                baseUrl("/gateway/plain"),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
+                byte[].class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        final Map<?, ?> gatewayResponse = decryptJsonResponse(response.getBody(), sm4Key, Map.class);
+        final Map<?, ?> downstream = (Map<?, ?>) gatewayResponse.get("downstream");
+        Assertions.assertEquals("plain-hop", downstream.get("name"));
+        Assertions.assertEquals(Boolean.FALSE, downstream.get("encryptedRequest"));
+    }
+
+    @Test
+    void shouldAllowMethodLevelMd5Disabled() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "md5-disabled");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final ResponseEntity<byte[]> response = restTemplate().postForEntity(
+                baseUrl("/gateway/md5-disabled"),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
+                byte[].class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        final Map<?, ?> gatewayResponse = decryptJsonResponse(response.getBody(), sm4Key, Map.class);
+        Assertions.assertEquals("wrong-md5-body", gatewayResponse.get("body"));
+    }
+
+    @Test
+    void shouldRejectWrongMd5WhenMethodLevelMd5Enabled() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "md5-enabled");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final HttpServerErrorException exception = Assertions.assertThrows(HttpServerErrorException.class, () ->
+                restTemplate().postForEntity(
+                        baseUrl("/gateway/md5-enabled"),
+                        jsonEntity(wrapEnvelope(requestEnvelope)),
+                        byte[].class));
+        Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+    }
+
+    @Test
+    void shouldPreferEnvelopeContentMd5OverWrongHeaderForEncryptedResponse() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "header-vs-envelope");
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope requestEnvelope = codec().createRequestEnvelope(
+                objectMapper.writeValueAsString(requestBody), MediaType.APPLICATION_JSON_VALUE, sm4Key);
+
+        final ResponseEntity<byte[]> response = restTemplate().postForEntity(
+                baseUrl("/gateway/encrypted-header-md5"),
+                jsonEntity(wrapEnvelope(requestEnvelope)),
+                byte[].class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        final Map<?, ?> gatewayResponse = decryptJsonResponse(response.getBody(), sm4Key, Map.class);
+        final Map<?, ?> downstream = (Map<?, ?>) gatewayResponse.get("downstream");
+        Assertions.assertEquals("header-vs-envelope", downstream.get("name"));
+        Assertions.assertEquals(Boolean.TRUE, downstream.get("encryptedRequest"));
+    }
+
+    private HttpEntity<byte[]> jsonEntity(final byte[] body) {
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return new HttpEntity<>(body, headers);
+    }
+
+    private String baseUrl(final String path) {
+        return "http://localhost:" + TEST_PORT + path;
+    }
+
+    private RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+
+    private <T> T decryptJsonResponse(final byte[] responseBody, final String sm4Key, final Class<T> type)
+            throws Exception {
+        final Map<?, ?> wrapper = objectMapper.readValue(responseBody, Map.class);
+        final TransferEnvelope compactEnvelope = TransferJsonUtils.decodeTransportPayload(objectMapper,
+                String.valueOf(wrapper.get(TransferConstants.FIELD_TRANSFER_PAYLOAD)));
+        final byte[] plaintext = codec().decodeResponseEnvelope(compactEnvelope, sm4Key);
+        return objectMapper.readValue(plaintext, type);
+    }
+
+    private byte[] wrapEnvelope(final TransferEnvelope envelope) throws Exception {
+        final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
+        wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        return objectMapper.writeValueAsBytes(wrapper);
+    }
+
+    private TransferEnvelopeCodec codec() {
+        final TransferEncryptProperties properties = new TransferEncryptProperties();
+        properties.setPrivateKey(PRIVATE_KEY);
+        properties.setPublicKey(PUBLIC_KEY);
+        return new TransferEnvelopeCodec(new DefaultTransferCryptoService(properties));
+    }
+
+    private static int findAvailablePort() {
+        try (final ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (final IOException ex) {
+            throw new IllegalStateException("无法分配测试端口", ex);
+        }
+    }
+
+    @SpringBootApplication
+    @EnableFeignClients(clients = {EncryptedBridgeClient.class, PlainBridgeClient.class})
+    @Import({GatewayController.class, DownstreamController.class})
+    static class TestApplication {
+    }
+
+    @TransferEncryptedFeignClient(publicKeyAlias = "downstream-wrong", md5Enabled = true)
+    @FeignClient(name = "encryptedBridgeClient", url = "${test.server.url}")
+    interface EncryptedBridgeClient {
+
+        @TransferEncryptedFeignClient(publicKeyAlias = "downstream-correct")
+        @PostMapping(value = "/downstream/encrypted", consumes = MediaType.APPLICATION_JSON_VALUE)
+        Map<String, Object> relay(@RequestBody Map<String, Object> requestBody);
+
+        @TransferEncryptedFeignClient(publicKeyAlias = "downstream-correct", md5Enabled = false)
+        @GetMapping(value = "/downstream/md5-disabled", produces = MediaType.TEXT_PLAIN_VALUE)
+        String md5Disabled();
+
+        @GetMapping(value = "/downstream/md5-enabled", produces = MediaType.TEXT_PLAIN_VALUE)
+        String md5Enabled();
+
+        @TransferEncryptedFeignClient(publicKeyAlias = "downstream-correct")
+        @PostMapping(value = "/downstream/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE)
+        Map<String, Object> encryptedHeaderMd5(@RequestBody Map<String, Object> requestBody);
+    }
+
+    @FeignClient(name = "plainBridgeClient", url = "${test.server.url}")
+    interface PlainBridgeClient {
+
+        @PostMapping(value = "/downstream/plain", consumes = MediaType.APPLICATION_JSON_VALUE)
+        Map<String, Object> relay(@RequestBody Map<String, Object> requestBody);
+    }
+
+    @RestController
+    @RequestMapping("/gateway")
+    static class GatewayController {
+
+        private final EncryptedBridgeClient encryptedBridgeClient;
+
+        private final PlainBridgeClient plainBridgeClient;
+
+        GatewayController(final EncryptedBridgeClient encryptedBridgeClient,
+                final PlainBridgeClient plainBridgeClient) {
+            this.encryptedBridgeClient = encryptedBridgeClient;
+            this.plainBridgeClient = plainBridgeClient;
+        }
+
+        @PostMapping(value = "/encrypted", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encrypted(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.<String, Object>singletonMap("downstream", encryptedBridgeClient.relay(requestBody));
+        }
+
+        @PostMapping(value = "/plain", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> plain(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.<String, Object>singletonMap("downstream", plainBridgeClient.relay(requestBody));
+        }
+
+        @PostMapping(value = "/md5-disabled", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> md5Disabled(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.<String, Object>singletonMap("body", encryptedBridgeClient.md5Disabled());
+        }
+
+        @PostMapping(value = "/md5-enabled", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> md5Enabled(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.singletonMap("body", encryptedBridgeClient.md5Enabled());
+        }
+
+        @PostMapping(value = "/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encryptedHeaderMd5(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.<String, Object>singletonMap("downstream",
+                    encryptedBridgeClient.encryptedHeaderMd5(requestBody));
+        }
+    }
+
+    @RestController
+    @RequestMapping("/downstream")
+    static class DownstreamController {
+
+        @PostMapping(value = "/encrypted", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encrypted(@RequestBody final Map<String, Object> requestBody,
+                final HttpServletRequest request) {
+            return response(requestBody, request);
+        }
+
+        @PostMapping(value = "/plain", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> plain(@RequestBody final Map<String, Object> requestBody,
+                final HttpServletRequest request) {
+            return response(requestBody, request);
+        }
+
+        @GetMapping(value = "/md5-disabled", produces = MediaType.TEXT_PLAIN_VALUE)
+        public ResponseEntity<String> md5Disabled() {
+            return ResponseEntity.ok()
+                    .header(TransferConstants.HEADER_CONTENT_MD5, "wrong-md5")
+                    .body("wrong-md5-body");
+        }
+
+        @GetMapping(value = "/md5-enabled", produces = MediaType.TEXT_PLAIN_VALUE)
+        public ResponseEntity<String> md5Enabled() {
+            return ResponseEntity.ok()
+                    .header(TransferConstants.HEADER_CONTENT_MD5, "wrong-md5")
+                    .body("wrong-md5-body");
+        }
+
+        @PostMapping(value = "/encrypted-header-md5", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> encryptedHeaderMd5(@RequestBody final Map<String, Object> requestBody,
+                final HttpServletRequest request, final HttpServletResponse response) {
+            response.setHeader(TransferConstants.HEADER_CONTENT_MD5, "wrong-md5");
+            return response(requestBody, request);
+        }
+
+        private Map<String, Object> response(final Map<String, Object> requestBody, final HttpServletRequest request) {
+            final Map<String, Object> response = new LinkedHashMap<String, Object>();
+            response.put("name", requestBody.get("name"));
+            final TransferRequestContext context =
+                    (TransferRequestContext) request.getAttribute(TransferConstants.REQUEST_ATTRIBUTE);
+            response.put("encryptedRequest", context != null && context.isEncryptedRequest());
+            return response;
+        }
+    }
+}

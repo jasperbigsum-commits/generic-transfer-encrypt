@@ -5,14 +5,10 @@ import io.github.jasper.transfer.encrypt.core.TransferConstants;
 import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
 import io.github.jasper.transfer.encrypt.core.TransferException;
 import io.github.jasper.transfer.encrypt.core.TransferRequestContext;
-import io.github.jasper.transfer.encrypt.model.TransferDecodedPayload;
-import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
 import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
-import io.github.jasper.transfer.encrypt.util.TransferWebUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -21,11 +17,7 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -45,15 +37,15 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
 
     private final ObjectMapper objectMapper;
 
-    private final TransferEnvelopeCodec envelopeCodec;
-
     private final TransferPathMatcher pathMatcher;
+
+    private final TransferWebExchangeProcessor exchangeProcessor;
 
     public TransferEncryptionFilter(final ObjectMapper objectMapper, final TransferEnvelopeCodec envelopeCodec,
             final TransferPathMatcher pathMatcher) {
         this.objectMapper = objectMapper;
-        this.envelopeCodec = envelopeCodec;
         this.pathMatcher = pathMatcher;
+        this.exchangeProcessor = new TransferWebExchangeProcessor(objectMapper, envelopeCodec);
     }
 
     @Override
@@ -65,13 +57,15 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
         }
 
         try {
-            final RequestResolution resolution = resolveRequest(request);
-            final HttpServletRequest requestToUse =
-                    resolution.requestWrapper == null ? request : resolution.requestWrapper;
-            requestToUse.setAttribute(TransferConstants.REQUEST_ATTRIBUTE, resolution.context);
+            final TransferWebExchangeProcessor.RequestResolution resolution = resolveRequest(request);
+            final HttpServletRequest requestToUse = resolution.isWrapRequest()
+                    ? new TransferHttpServletRequestWrapper(request, resolution.getBody(), resolution.getParameters(),
+                            resolution.getQueryString(), resolution.getContentType())
+                    : request;
+            requestToUse.setAttribute(TransferConstants.REQUEST_ATTRIBUTE, resolution.getContext());
             final ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper(response);
             filterChain.doFilter(requestToUse, responseWrapper);
-            writeResponse(requestToUse, responseWrapper, resolution.context);
+            writeResponse(responseWrapper, resolution.getContext());
         } catch (final TransferException ex) {
             writeError(response, HttpServletResponse.SC_BAD_REQUEST, ex.getMessage());
         } catch (final Exception ex) {
@@ -81,209 +75,46 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
                 return;
             }
             log.error("Transfer encryption failed on [{} {}]", request.getMethod(), request.getRequestURI(), ex);
-            writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "传输层加解密处理异常");
+            // 实际不是我这边的错误应该由第三方进行处理，而不是吃掉异常
+            throw ex;
         }
     }
 
-    private RequestResolution resolveRequest(final HttpServletRequest request) throws IOException {
-        final String contentType = request.getContentType();
-        final boolean multipart = TransferWebUtils.isMultipartContentType(contentType);
-        // 若是或文件混合表单的直接非加密
-        if (multipart) {
-            return new RequestResolution(null, new TransferRequestContext(true, false, true, null));
-        }
-        final byte[] originalBody = TransferWebUtils.readBody(request);
-        final Map<String, String[]> originalParameters = resolveOriginalParameters(request, originalBody);
-
-        final ResolvedEnvelope envelope = resolveEnvelope(request, originalBody);
-        if (envelope != null) {
-            final TransferDecodedPayload payload = envelopeCodec.decodeRequestEnvelope(envelope.payload,
-                    envelope.originalContentType);
-            final String plaintext = payload.getPlaintext();
-            final byte[] decryptedBody = plaintext.getBytes(StandardCharsets.UTF_8);
-            final String innerContentType = payload.getOriginalContentType();
-            // 若请求内容是application/json， 则合并获取body相关信息
-            if (TransferWebUtils.isJsonContentType(innerContentType)) {
-                final Map<String, String[]> decryptedParameters = resolveJsonParameters(plaintext);
-                // 将其从其他部分解析的内容合并为单个Parameters
-                mergePlainParameters(originalParameters, decryptedParameters);
-                return new RequestResolution(
-                        new TransferHttpServletRequestWrapper(request, decryptedBody,
-                                decryptedParameters, request.getQueryString(), innerContentType),
-                        new TransferRequestContext(true, true, false, payload.getSm4Key()));
-            }
-
-            final Map<String, String[]> decryptedParameters = new LinkedHashMap<>(
-                    TransferWebUtils.parseQueryString(plaintext));
-            mergePlainParameters(originalParameters, decryptedParameters);
-            final String queryString = "GET".equalsIgnoreCase(request.getMethod()) ? plaintext : request.getQueryString();
-            return new RequestResolution(new TransferHttpServletRequestWrapper(request, decryptedBody, decryptedParameters,
-                    queryString, innerContentType), new TransferRequestContext(true, true, false, payload.getSm4Key()));
-        }
-
-        final String requestMd5 = request.getHeader(TransferConstants.HEADER_CONTENT_MD5);
-        if (StringUtils.hasText(requestMd5) && originalBody.length > 0) {
-            envelopeCodec.verifyMd5(originalBody, requestMd5);
-            return new RequestResolution(new TransferHttpServletRequestWrapper(request, originalBody,
-                    originalParameters, request.getQueryString(), contentType),
-                    new TransferRequestContext(true, false, true, null));
-        }
-        return new RequestResolution(new TransferHttpServletRequestWrapper(request, originalBody, originalParameters,
-                request.getQueryString(), contentType),
-                new TransferRequestContext(true, false, false, null));
+    private TransferWebExchangeProcessor.RequestResolution resolveRequest(final HttpServletRequest request)
+            throws IOException {
+        final byte[] originalBody = TransferServletWebUtils.readBody(request);
+        return exchangeProcessor.resolveRequest(new TransferWebExchangeProcessor.RequestInput(request.getMethod(),
+                request.getContentType(), request.getQueryString(), originalBody,
+                TransferServletWebUtils.extractParameters(request), request.getHeader(TransferConstants.HEADER_CONTENT_MD5)));
     }
 
-    /**
-     * 解析JSON中转化为Parameters格式内容
-     * @param plaintext 明文
-     * @return 转换的Paramterss
-     */
-    private Map<String, String[]> resolveJsonParameters(final String plaintext) {
-        final Object jsonValue = TransferJsonUtils.readValue(objectMapper, plaintext, Object.class);
-        if (!(jsonValue instanceof Map)) {
-            return new LinkedHashMap<>();
-        }
-        final Map<?, ?> jsonMap = (Map<?, ?>) jsonValue;
-        final Map<String, String[]> parameters = new LinkedHashMap<>();
-        for (final Map.Entry<?, ?> entry : jsonMap.entrySet()) {
-            if (entry.getKey() == null) {
-                continue;
-            }
-            parameters.put(String.valueOf(entry.getKey()), toParameterValues(entry.getValue()));
-        }
-        return parameters;
-    }
-
-    /**
-     * 判断json转换对象参数values内容
-     * @param value 值对象
-     * @return 返回值String数组
-     */
-    private String[] toParameterValues(final Object value) {
-        if (value == null) {
-            return new String[] {""};
-        }
-        if (value instanceof Iterable) {
-            final List<String> values = new ArrayList<String>();
-            for (final Object item : (Iterable<?>) value) {
-                values.add(stringifyParameterValue(item));
-            }
-            return values.toArray(new String[0]);
-        }
-        if (value.getClass().isArray()) {
-            final int length = Array.getLength(value);
-            final String[] values = new String[length];
-            for (int index = 0; index < length; index++) {
-                values[index] = stringifyParameterValue(Array.get(value, index));
-            }
-            return values;
-        }
-        return new String[] {stringifyParameterValue(value)};
-    }
-
-    /**
-     * 格式化为ParameterValue
-     * @param value 值对象
-     * @return 返回String
-     */
-    private String stringifyParameterValue(final Object value) {
-        if (value == null) {
-            return "";
-        }
-        if (value instanceof CharSequence || value instanceof Number || value instanceof Boolean) {
-            return String.valueOf(value);
-        }
-        return TransferJsonUtils.writeString(objectMapper, value);
-    }
-
-    private Map<String, String[]> resolveOriginalParameters(final HttpServletRequest request, final byte[] originalBody) {
-        if (TransferWebUtils.isFormContentType(request.getContentType())) {
-            final Map<String, String[]> formParameters =
-                    new LinkedHashMap<>(TransferWebUtils.parseQueryString(
-                            new String(originalBody, StandardCharsets.UTF_8)));
-            final Map<String, String[]> queryParameters = TransferWebUtils.extractParameters(request);
-            for (final Map.Entry<String, String[]> entry : queryParameters.entrySet()) {
-                if (!formParameters.containsKey(entry.getKey())) {
-                    formParameters.put(entry.getKey(), entry.getValue());
-                }
-            }
-            return formParameters;
-        }
-        return TransferWebUtils.extractParameters(request);
-    }
-
-    private void mergePlainParameters(final Map<String, String[]> originalParameters,
-            final Map<String, String[]> parameters) {
-        for (final Map.Entry<String, String[]> entry : originalParameters.entrySet()) {
-            final String name = entry.getKey();
-            if (TransferConstants.FIELD_TRANSFER_PAYLOAD.equals(name)) {
-                continue;
-            }
-            if (!parameters.containsKey(name)) {
-                parameters.put(name, entry.getValue());
-            }
-        }
-    }
-
-    private ResolvedEnvelope resolveEnvelope(final HttpServletRequest request, final byte[] originalBody) {
-        if (originalBody.length > 0 && TransferWebUtils.isJsonContentType(request.getContentType())) {
-            final String bodyString = new String(originalBody, StandardCharsets.UTF_8);
-            if (TransferWebUtils.isTransferEnvelopeJson(bodyString)) {
-                final Map<?, ?> bodyMap = TransferJsonUtils.readValue(objectMapper, bodyString, Map.class);
-                final Object compactPayload = bodyMap.get(TransferConstants.FIELD_TRANSFER_PAYLOAD);
-                if (!StringUtils.hasText(compactPayload == null ? null : String.valueOf(compactPayload))) {
-                    throw new TransferException("transferPayload 缺失");
-                }
-                final Object originalContentType = bodyMap.get(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE);
-                return new ResolvedEnvelope(
-                        TransferJsonUtils.decodeTransportPayload(objectMapper, String.valueOf(compactPayload)),
-                        normalizeOriginalContentType(originalContentType == null ? null : String.valueOf(originalContentType),
-                                request.getContentType()));
-            }
-        }
-        final Map<String, String[]> parameters = TransferWebUtils.isFormContentType(request.getContentType())
-                ? TransferWebUtils.parseQueryString(new String(originalBody, StandardCharsets.UTF_8))
-                : TransferWebUtils.extractParameters(request);
-        final String compactPayload = firstParameter(parameters, TransferConstants.FIELD_TRANSFER_PAYLOAD);
-        if (StringUtils.hasText(compactPayload)) {
-            return new ResolvedEnvelope(TransferJsonUtils.decodeTransportPayload(objectMapper, compactPayload),
-                    normalizeOriginalContentType(firstParameter(parameters, TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE),
-                            request.getContentType()));
-        }
-        return null;
-    }
-
-    private void writeResponse(final HttpServletRequest request, final ContentCachingResponseWrapper responseWrapper,
-            final TransferRequestContext context) throws IOException {
+    private void writeResponse(final ContentCachingResponseWrapper responseWrapper, final TransferRequestContext context)
+            throws IOException {
         final byte[] body = responseWrapper.getContentAsByteArray();
         final String contentType = responseWrapper.getContentType();
         final String disposition = responseWrapper.getHeader("Content-Disposition");
-        if (context.isEncryptedRequest() && shouldEncryptResponse(responseWrapper, contentType, disposition, body)) {
-            final TransferEnvelope responseEnvelope = envelopeCodec.createResponseEnvelope(body,
-                    TransferWebUtils.normalizeContentType(contentType), context.getSm4Key());
-            final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
-            wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
-                    TransferJsonUtils.encodeTransportPayload(objectMapper, responseEnvelope));
-            wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE,
-                    TransferWebUtils.normalizeContentType(contentType));
-            final byte[] encryptedBody = TransferJsonUtils.writeBytes(objectMapper, wrapper);
-            responseWrapper.resetBuffer();
-            responseWrapper.setHeader(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true");
-            responseWrapper.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            responseWrapper.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            responseWrapper.setContentLength(encryptedBody.length);
-            responseWrapper.getOutputStream().write(encryptedBody);
-        } else if (body.length > 0
-                && (context.isFileRequest() || TransferWebUtils.isBinaryResponse(contentType, disposition))) {
-            responseWrapper.setHeader(TransferConstants.HEADER_CONTENT_MD5, envelopeCodec.md5Hex(body));
+        final TransferWebExchangeProcessor.ResponseResolution resolution = exchangeProcessor.resolveResponse(
+                new TransferWebExchangeProcessor.ResponseInput(responseWrapper.getStatus(), body, contentType,
+                        disposition, context));
+        for (final Map.Entry<String, String> entry : resolution.getHeaders().entrySet()) {
+            responseWrapper.setHeader(entry.getKey(), entry.getValue());
+        }
+        if (resolution.isRewriteBody()) {
+            try {
+                final byte[] encryptedBody = resolution.getBody();
+                responseWrapper.resetBuffer();
+                for (final Map.Entry<String, String> entry : resolution.getHeaders().entrySet()) {
+                    responseWrapper.setHeader(entry.getKey(), entry.getValue());
+                }
+                responseWrapper.setContentType(resolution.getContentType());
+                responseWrapper.setCharacterEncoding(resolution.getCharacterEncoding());
+                responseWrapper.setContentLength(encryptedBody.length);
+                responseWrapper.getOutputStream().write(encryptedBody);
+            } catch (final IOException e) {
+                throw new TransferException("加密重写响应体异常", e);
+            }
         }
         responseWrapper.copyBodyToResponse();
-    }
-
-    private boolean shouldEncryptResponse(final ContentCachingResponseWrapper responseWrapper, final String contentType,
-            final String disposition, final byte[] body) {
-        return responseWrapper.getStatus() != HttpServletResponse.SC_NO_CONTENT && body.length > 0
-                && !TransferWebUtils.isBinaryResponse(contentType, disposition);
     }
 
     private void writeError(final HttpServletResponse response, final int status, final String message)
@@ -320,46 +151,6 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
             current = current.getCause();
         }
         return false;
-    }
-
-    private String firstParameter(final Map<String, String[]> parameters, final String name) {
-        final String[] values = parameters.get(name);
-        return values == null || values.length == 0 ? null : values[0];
-    }
-
-    private String normalizeOriginalContentType(final String originalContentType, final String requestContentType) {
-        if (StringUtils.hasText(originalContentType)) {
-            return originalContentType;
-        }
-        if (TransferWebUtils.isJsonContentType(requestContentType)) {
-            return MediaType.APPLICATION_JSON_VALUE;
-        }
-        return MediaType.APPLICATION_FORM_URLENCODED_VALUE;
-    }
-
-    private static final class RequestResolution {
-
-        private final TransferHttpServletRequestWrapper requestWrapper;
-
-        private final TransferRequestContext context;
-
-        private RequestResolution(final TransferHttpServletRequestWrapper requestWrapper,
-                final TransferRequestContext context) {
-            this.requestWrapper = requestWrapper;
-            this.context = context;
-        }
-    }
-
-    private static final class ResolvedEnvelope {
-
-        private final TransferEnvelope payload;
-
-        private final String originalContentType;
-
-        private ResolvedEnvelope(final TransferEnvelope payload, final String originalContentType) {
-            this.payload = payload;
-            this.originalContentType = originalContentType;
-        }
     }
 
     private static final class ErrorBody {

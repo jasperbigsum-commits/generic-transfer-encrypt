@@ -5,6 +5,8 @@
 这是一个“跨端一致”的应用层传输加密协议仓库，当前已落地以下模块：
 
 - `spring2-plugin`：Spring Boot 2 / Spring MVC 服务端 starter
+- `spring3-plugin`：Spring Boot 3 / Spring MVC 服务端 starter
+- `transfer-encrypt-core`：服务端公共协议、加密、Feign 与通用 Web 处理核心
 - `vanilla-js-plugin`：原生浏览器 JavaScript SDK
 - `vue3-plugin`：基于同一协议的 Vue 3 SDK
 - `flutter-plugin`：Flutter 客户端 SDK
@@ -44,16 +46,31 @@
 
 ## 3. 模块地图
 
-### `spring2-plugin`
+### `transfer-encrypt-core`
 
-面向 Spring Boot 2.x / Spring Framework 5.x / `javax.servlet.*` 的服务端实现。
+服务端公共核心模块，供 `spring2-plugin` 与 `spring3-plugin` 共同依赖。
 
 重点目录：
 
 - `src/main/java/.../core`：协议编解码与常量
 - `src/main/java/.../crypto`：SM2/SM4 实现
-- `src/main/java/.../web`：Servlet Filter、RequestWrapper、multipart MD5 校验
+- `src/main/java/.../web`：路径匹配与 servlet-neutral HTTP 交换处理
 - `src/main/java/.../feign`：选择性 OpenFeign 加密链路
+- `src/main/java/.../config`：公共配置属性
+
+约束：
+
+- 目标 Java 8
+- 不要引入 `javax.servlet.*` 或 `jakarta.servlet.*`
+- 公共协议、加密、Feign、JSON 参数展开、请求/响应信封处理优先放这里
+
+### `spring2-plugin`
+
+面向 Spring Boot 2.x / Spring Framework 5.x / `javax.servlet.*` 的服务端适配层。
+
+重点目录：
+
+- `src/main/java/.../web`：Servlet Filter、RequestWrapper、multipart MD5 校验
 - `src/main/java/.../autoconfigure`：starter 自动装配入口
 - `src/main/resources/META-INF/spring.factories`：自动配置注册
 
@@ -62,7 +79,24 @@
 - 目标 Java 8
 - `pom.xml` 中 Spring Boot 版本为 `2.7.18`
 - 使用的是 `javax.servlet`，不是 `jakarta.servlet`
-- Spring Boot 3 兼容应走独立模块，不要直接把 Boot 3 API 混入当前 starter
+- 不要把协议核心逻辑重新复制回该模块
+
+### `spring3-plugin`
+
+面向 Spring Boot 3.x / Spring Framework 6.x / `jakarta.servlet.*` 的服务端适配层。
+
+重点目录：
+
+- `src/main/java/.../web`：Servlet Filter、RequestWrapper、multipart MD5 校验
+- `src/main/java/.../autoconfigure`：starter 自动装配入口
+- `src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`：自动配置注册
+
+约束：
+
+- 目标 Java 17
+- `pom.xml` 中 Spring Boot 版本为 `3.2.12`
+- 使用的是 `jakarta.servlet`，不是 `javax.servlet`
+- 协议行为必须与 `spring2-plugin` 保持一致，公共逻辑优先改 `transfer-encrypt-core`
 
 ### `vanilla-js-plugin`
 
@@ -123,12 +157,12 @@
 
 重点目录：
 
-- `server/`：Spring Boot 演示服务
+- `server/`：Spring Boot 2 演示服务
+- `server-spring3/`：Spring Boot 3 演示服务
 - `tests/client-cross-stack-probe.mjs`：自动探针
 
 说明：
 
-- 当前 demo 服务只有 Spring Boot 2 版本
 - 手工联调与自动探针这两类入口都应保留
 
 ## 4. 代理工作规则
@@ -146,8 +180,8 @@
 改动前先判断影响面：
 
 - 协议字段变化：通常会影响 `spring2-plugin`、`vanilla-js-plugin`、`vue3-plugin`、`flutter-plugin` 和 `e2e-demo`
-- Servlet filter / 请求解密问题：优先看 `spring2-plugin/web`
-- Feign 加密链路问题：优先看 `spring2-plugin/feign`
+- Servlet filter / 请求解密问题：先判断是公共处理问题还是 Servlet 适配问题；公共处理看 `transfer-encrypt-core/web`，适配问题看对应 starter 的 `web`
+- Feign 加密链路问题：优先看 `transfer-encrypt-core/feign`
 - 浏览器上传 / Layui 桥接问题：优先看 `vanilla-js-plugin/transfer-encrypt.js` 与 `example/`
 - Vue composable / plugin 注入问题：优先看 `vue3-plugin/transfer-encrypt-vue3.js`
 - Flutter HTTP 或 Dio 行为问题：优先看 `flutter-plugin/lib/src`
@@ -172,8 +206,11 @@
 模块级验证：
 
 ```powershell
-cd .\spring2-plugin
-mvn "-Dmaven.repo.local=.m2repo" test
+mvn "-Dmaven.repo.local=.m2repo" -pl spring2-plugin -am test
+```
+
+```powershell
+mvn "-Dmaven.repo.local=.m2repo" -pl spring3-plugin -am test
 ```
 
 ```powershell
@@ -194,7 +231,12 @@ flutter test
 
 ```powershell
 cd .\e2e-demo\server
-mvn "-Dmaven.repo.local=..\..\spring2-plugin\.m2repo" test
+mvn "-Dmaven.repo.local=..\..\.m2repo" test
+```
+
+```powershell
+cd .\e2e-demo\server-spring3
+mvn "-Dmaven.repo.local=..\..\.m2repo" test
 ```
 
 手工 E2E 联调：
@@ -229,7 +271,7 @@ mvn "-Dmaven.repo.local=..\..\spring2-plugin\.m2repo" test
 
 ## 9. 已知架构方向
 
-Spring Boot 3 兼容的既定方向是“拆分独立兼容路径”，不是在当前 starter 里混装 Boot 2 和 Boot 3 依赖。
+Spring Boot 3 兼容的既定方向是“公共 core + 独立 starter 适配层”，不是在同一个 starter 里混装 Boot 2 和 Boot 3 依赖。
 
 如果后续工作涉及该方向，优先遵循现有文档：
 

@@ -1,0 +1,302 @@
+package io.github.jasper.transfer.encrypt;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.jasper.transfer.encrypt.config.TransferEncryptProperties;
+import io.github.jasper.transfer.encrypt.core.TransferConstants;
+import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
+import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
+import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
+import io.github.jasper.transfer.encrypt.util.TransferJsonUtils;
+
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(classes = TransferEncryptionIntegrationTest.TestApplication.class)
+@AutoConfigureMockMvc
+class TransferEncryptionIntegrationTest {
+
+    private static final Sm2TestKeySupport.Sm2KeyPair TEST_KEY_PAIR = Sm2TestKeySupport.generateKeyPair();
+
+    private static final String PRIVATE_KEY = TEST_KEY_PAIR.getPrivateKeyHex();
+
+    private static final String PUBLIC_KEY = TEST_KEY_PAIR.getPublicKeyHex();
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @DynamicPropertySource
+    static void registerProperties(final DynamicPropertyRegistry registry) {
+        registry.add("transfer.encrypt.private-key", () -> PRIVATE_KEY);
+        registry.add("transfer.encrypt.public-key", () -> PUBLIC_KEY);
+        registry.add("transfer.encrypt.include-path-regex[0]", () -> "^/api/.*$");
+    }
+
+    @Test
+    void shouldDecryptJsonRequestAndEncryptJsonResponse() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("name", "alice");
+        final String plaintext = objectMapper.writeValueAsString(requestBody);
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext, MediaType.APPLICATION_JSON_VALUE,
+                sm4Key);
+
+        final MvcResult result = mockMvc.perform(post("/api/json")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(wrapEnvelope(envelope)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals("alice", responseBody.get("echo"));
+    }
+
+    @Test
+    void shouldDecryptQueryParameters() throws Exception {
+        final String plaintext = "name=bob";
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext,
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE, sm4Key);
+        final String queryString = buildEnvelopeQuery(envelope);
+
+        final MvcResult result = mockMvc.perform(get("/api/query?" + queryString))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals("bob", responseBody.get("name"));
+    }
+
+    @Test
+    void shouldBindBracketStyleRequestParamForEncryptedQueryRequest() throws Exception {
+        final String plaintext = "contractIds=101&contractIds=102";
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext,
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE, sm4Key);
+        final String queryString = buildEnvelopeQuery(envelope);
+
+        final MvcResult result = mockMvc.perform(get("/api/query-array?" + queryString))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals(2, responseBody.get("count"));
+        Assertions.assertEquals("101", responseBody.get("first"));
+    }
+
+    @Test
+    void shouldDecryptFormRequestWithoutBreakingBinding() throws Exception {
+        final String plaintext = "name=carol";
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext,
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE, sm4Key);
+
+        final MvcResult result = mockMvc.perform(post("/api/form")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .content(buildEnvelopeQuery(envelope)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals("carol", responseBody.get("name"));
+    }
+
+    @Test
+    void shouldBindBracketStyleRequestParamForEncryptedJsonRequest() throws Exception {
+        final Map<String, Object> requestBody = new LinkedHashMap<String, Object>();
+        requestBody.put("contractIds", new String[] {"201", "202"});
+        final String plaintext = objectMapper.writeValueAsString(requestBody);
+        final String sm4Key = codec().randomSm4Key();
+        final TransferEnvelope envelope = codec().createRequestEnvelope(plaintext, MediaType.APPLICATION_JSON_VALUE,
+                sm4Key);
+
+        final MvcResult result = mockMvc.perform(post("/api/json-request-param-array")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(wrapEnvelope(envelope)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(TransferConstants.HEADER_TRANSFER_ENCRYPTED, "true"))
+                .andReturn();
+
+        final Map<?, ?> responseBody = decryptJsonResponse(result, sm4Key, Map.class);
+        Assertions.assertEquals(2, responseBody.get("count"));
+        Assertions.assertEquals("201", responseBody.get("first"));
+    }
+
+    @Test
+    void shouldAppendMd5ForBinaryResponse() throws Exception {
+        final MvcResult result = mockMvc.perform(get("/api/file"))
+                .andExpect(status().isOk())
+                .andExpect(header().exists(TransferConstants.HEADER_CONTENT_MD5))
+                .andReturn();
+
+        final byte[] responseBody = result.getResponse().getContentAsByteArray();
+        Assertions.assertEquals(codec().md5Hex(responseBody),
+                result.getResponse().getHeader(TransferConstants.HEADER_CONTENT_MD5));
+    }
+
+    @Test
+    void shouldVerifyMultipartMd5() throws Exception {
+        final byte[] fileBytes = "upload-content".getBytes(StandardCharsets.UTF_8);
+        final MockMultipartFile file = new MockMultipartFile("file", "demo.txt", MediaType.TEXT_PLAIN_VALUE, fileBytes);
+
+        mockMvc.perform(multipart("/api/upload")
+                        .file(file)
+                        .param("__md5_file", codec().md5Hex(fileBytes)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldVerifyMultipartMd5ForMultipleFilesWithSameField() throws Exception {
+        final byte[] firstFileBytes = "upload-content-1".getBytes(StandardCharsets.UTF_8);
+        final byte[] secondFileBytes = "upload-content-2".getBytes(StandardCharsets.UTF_8);
+        final MockMultipartFile firstFile =
+                new MockMultipartFile("files", "demo1.txt", MediaType.TEXT_PLAIN_VALUE, firstFileBytes);
+        final MockMultipartFile secondFile =
+                new MockMultipartFile("files", "demo2.txt", MediaType.TEXT_PLAIN_VALUE, secondFileBytes);
+
+        mockMvc.perform(multipart("/api/upload/multi")
+                        .file(firstFile)
+                        .file(secondFile)
+                        .param("__md5_files__0", codec().md5Hex(firstFileBytes))
+                        .param("__md5_files__1", codec().md5Hex(secondFileBytes)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(2));
+    }
+
+    private <T> T decryptJsonResponse(final MvcResult result, final String sm4Key, final Class<T> type)
+            throws Exception {
+        final TransferEnvelope responseEnvelope =
+                unwrapEnvelope(result.getResponse().getContentAsByteArray());
+        final byte[] plaintext = codec().decodeResponseEnvelope(responseEnvelope, sm4Key);
+        return objectMapper.readValue(plaintext, type);
+    }
+
+    private String buildEnvelopeQuery(final TransferEnvelope envelope) throws UnsupportedEncodingException {
+        return TransferConstants.FIELD_TRANSFER_PAYLOAD + "="
+                + urlEncode(TransferJsonUtils.encodeTransportPayload(objectMapper, envelope))
+                + "&" + TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE + "="
+                + urlEncode(MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+    }
+
+    private byte[] wrapEnvelope(final TransferEnvelope envelope) throws Exception {
+        final Map<String, Object> wrapper = new LinkedHashMap<String, Object>();
+        wrapper.put(TransferConstants.FIELD_TRANSFER_PAYLOAD,
+                TransferJsonUtils.encodeTransportPayload(objectMapper, envelope));
+        wrapper.put(TransferConstants.FIELD_ORIGINAL_CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+        return objectMapper.writeValueAsBytes(wrapper);
+    }
+
+    private TransferEnvelope unwrapEnvelope(final byte[] responseBody) throws Exception {
+        final Map<?, ?> wrapper = objectMapper.readValue(responseBody, Map.class);
+        return TransferJsonUtils.decodeTransportPayload(objectMapper,
+                String.valueOf(wrapper.get(TransferConstants.FIELD_TRANSFER_PAYLOAD)));
+    }
+
+    private String urlEncode(final String value) throws UnsupportedEncodingException {
+        return java.net.URLEncoder.encode(value, "UTF-8");
+    }
+
+    private TransferEnvelopeCodec codec() {
+        final TransferEncryptProperties properties = new TransferEncryptProperties();
+        properties.setPrivateKey(PRIVATE_KEY);
+        properties.setPublicKey(PUBLIC_KEY);
+        return new TransferEnvelopeCodec(new DefaultTransferCryptoService(properties));
+    }
+
+    @SpringBootApplication
+    @Import(DemoController.class)
+    static class TestApplication {
+    }
+
+    @RestController
+    @RequestMapping("/api")
+    static class DemoController {
+
+        @PostMapping(value = "/json", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, String> json(@RequestBody final Map<String, Object> requestBody) {
+            return Collections.singletonMap("echo", String.valueOf(requestBody.get("name")));
+        }
+
+        @GetMapping(value = "/query", produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, String> query(@RequestParam("name") final String name) {
+            return Collections.singletonMap("name", name);
+        }
+
+        @GetMapping(value = "/query-array", produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> queryArray(@RequestParam("contractIds[]") final String[] contractIds) {
+            final Map<String, Object> response = new LinkedHashMap<>();
+            response.put("count", contractIds.length);
+            response.put("first", contractIds[0]);
+            return response;
+        }
+
+        @PostMapping(value = "/form", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, String> form(@RequestParam("name") final String name) {
+            return Collections.singletonMap("name", name);
+        }
+
+        @PostMapping(value = "/json-request-param-array", consumes = MediaType.APPLICATION_JSON_VALUE,
+                produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> jsonRequestParamArray(
+                @RequestParam("contractIds[]") final String[] contractIds) {
+            final Map<String, Object> response = new LinkedHashMap<>();
+            response.put("count", contractIds.length);
+            response.put("first", contractIds[0]);
+            return response;
+        }
+
+        @GetMapping(value = "/file", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+        public byte[] file() {
+            return "file-download".getBytes(StandardCharsets.UTF_8);
+        }
+
+        @PostMapping(value = "/upload", produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, String> upload(@RequestParam("file") final MultipartFile file) {
+            return Collections.singletonMap("fileName", file.getOriginalFilename());
+        }
+
+        @PostMapping(value = "/upload/multi", produces = MediaType.APPLICATION_JSON_VALUE)
+        public Map<String, Object> uploadMulti(@RequestParam("files") final MultipartFile[] files) {
+            return Collections.<String, Object>singletonMap("count", files.length);
+        }
+    }
+}

@@ -377,7 +377,7 @@
   TransferEncryptClient.prototype.encryptPayload = function (plaintext, originalContentType, sm4Key) {
     var library = resolveSmCrypto(this);
     return {
-      encryptedKey: library.sm2.doEncrypt(sm4Key, this.publicKey, 1),
+      encryptedKey: "04" + library.sm2.doEncrypt(sm4Key, this.publicKey, 1),
       encryptedData: library.sm4.encrypt(plaintext, asciiToHex(sm4Key), { mode: 'ecb', padding: 'pkcs#7' }),
       contentMd5: md5String(plaintext),
       timestamp: Date.now()
@@ -419,8 +419,9 @@
     } else if (options.json !== undefined) {
       sm4Key = randomSm4Key();
       headers.set('Content-Type', 'application/json;charset=UTF-8');
+      const plainTextJson = typeof options.json === 'string' ? options.json : JSON.stringify(options.json);
       body = JSON.stringify(buildTransportWrapper(
-        this.encryptPayload(JSON.stringify(options.json), 'application/json', sm4Key),
+        this.encryptPayload(plainTextJson, 'application/json', sm4Key),
         'application/json'
       ));
     } else if (isPlainObject(body)) {

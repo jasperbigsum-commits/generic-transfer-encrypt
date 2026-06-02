@@ -4,7 +4,9 @@
 
 当前已落地模块：
 
+- `transfer-encrypt-core`: 服务端公共协议、加密、Feign 和通用 Web 处理核心
 - `spring2-plugin`: Spring Boot 2 / Spring MVC 服务端插件
+- `spring3-plugin`: Spring Boot 3 / Spring MVC 服务端插件
 - `vanilla-js-plugin`: 原生 JS 浏览器端 SDK
 - `flutter-plugin`: Flutter 客户端 SDK
 - `vue3-plugin`: Vue 3 客户端 SDK
@@ -45,16 +47,20 @@
 
 ```text
 generic-transfer-encrypt/
+├─ transfer-encrypt-core/
 ├─ spring2-plugin/
+├─ spring3-plugin/
 ├─ vanilla-js-plugin/
 ├─ flutter-plugin/
 ├─ vue3-plugin/
-└─ scripts/
+├─ e2e-demo/
+└─ pom.xml
 ```
 
 各模块入口文档：
 
 - [spring2-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\README.md)
+- [spring3-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\spring3-plugin\README.md)
 - [vanilla-js-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\vanilla-js-plugin\README.md)
 - [flutter-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\flutter-plugin\README.md)
 - [vue3-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\vue3-plugin\README.md)
@@ -74,20 +80,35 @@ generic-transfer-encrypt/
 服务端相关目录：
 
 ```text
-spring2-plugin/
+transfer-encrypt-core/
 ├─ src/main/java/
 │  ├─ annotation/         # Feign 选择性加密注解
-│  ├─ autoconfigure/      # Spring Boot 自动配置入口
-│  ├─ config/             # 配置属性与 MVC 配置
+│  ├─ config/             # 公共配置属性
 │  ├─ core/               # 协议编解码核心
 │  ├─ crypto/             # 国密加解密实现
 │  ├─ feign/              # OpenFeign 包装层
 │  ├─ model/              # 传输模型
 │  ├─ util/               # Web/JSON 辅助工具
-│  └─ web/                # Filter、RequestWrapper、上传完整性校验
+│  └─ web/                # 路径匹配与 servlet-neutral 交换处理器
+└─ src/test/java/
+
+spring2-plugin/
+├─ src/main/java/
+│  ├─ autoconfigure/      # Spring Boot 2 自动配置入口
+│  ├─ config/             # MVC 配置
+│  └─ web/                # javax.servlet Filter、RequestWrapper、上传完整性校验
 ├─ src/main/resources/
 │  └─ META-INF/           # spring.factories
-├─ src/test/java/         # Spring Boot 2 集成测试
+└─ src/test/java/         # Spring Boot 2 集成测试
+
+spring3-plugin/
+├─ src/main/java/
+│  ├─ autoconfigure/      # Spring Boot 3 自动配置入口
+│  ├─ config/             # MVC 配置
+│  └─ web/                # jakarta.servlet Filter、RequestWrapper、上传完整性校验
+├─ src/main/resources/
+│  └─ META-INF/spring/    # AutoConfiguration.imports
+├─ src/test/java/         # Spring Boot 3 集成测试
 └─ docs/                  # 架构与过滤器顺序说明
 ```
 
@@ -124,7 +145,8 @@ E2E 相关目录：
 
 ```text
 e2e-demo/
-├─ server/                # 当前 Spring Boot 2 演示服务
+├─ server/                # Spring Boot 2 演示服务
+├─ server-spring3/        # Spring Boot 3 演示服务
 └─ tests/                 # Node cross-stack 探针
 ```
 
@@ -230,24 +252,25 @@ dependencies:
 
 ## Spring 3 兼容策略
 
-当前仓库已落地的是 `spring2-plugin`，它可以扩展到 Spring Boot 3，但不建议在现有 starter 上直接混装 `spring2 + spring3` 依赖做兼容开关。
+当前仓库已按独立 starter 落地 Spring Boot 2 与 Spring Boot 3：
 
-原因：
+- `transfer-encrypt-core` 承载公共协议、加密、配置、Feign 包装、JSON/Web 通用处理逻辑
+- `spring2-plugin` 只承载 Spring Boot 2 / `javax.servlet.*` 适配层
+- `spring3-plugin` 只承载 Spring Boot 3 / `jakarta.servlet.*` 适配层
 
-- 当前 Web 层直接依赖 `javax.servlet.*`
-- Spring Boot 3 / Spring Framework 6 已切到 `jakarta.servlet.*`
-- 自动配置注册方式也从 `spring.factories` 逐步迁移到 `AutoConfiguration.imports`
+不建议在同一个 starter 里混装 `spring2 + spring3` 依赖做兼容开关，原因是 Servlet 命名空间和自动配置注册方式都不同。
 
-建议的扩展方式是：
+当前模块边界是：
 
-1. 抽出协议与加密核心模块，不依赖 Servlet 命名空间
-2. 保留 `spring2-plugin` 作为 `javax.servlet` 版本 starter
-3. 新增 `spring3-plugin` 或 `spring3-starter`，只承载 `jakarta.servlet` 适配层
-4. Feign 相关包装尽量抽成公共模块，避免两边重复实现
-5. 非必要依赖尽量只保留在具体适配层，不放进公共核心模块
+1. 协议字段、SM2/SM4、MD5、Feign、请求/响应信封处理统一改 `transfer-encrypt-core`
+2. Filter、RequestWrapper、Multipart 拦截器这类 Servlet API 绑定代码分别留在两个 starter
+3. Spring Boot 2 使用 `META-INF/spring.factories`
+4. Spring Boot 3 使用 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
 
-当前仓库已先做的一步收敛：
+当前仓库已完成的收敛：
 
+- 公共核心代码已抽到 `transfer-encrypt-core`
+- Spring Boot 2 与 Spring Boot 3 starter 均依赖 `generic-transfer-encrypt-core`
 - `spring2-plugin` 主代码已移除 `lombok` 依赖
 - `hutool-core` 不再单独直连声明，继续由 `hutool-crypto` 传递提供
 
@@ -271,11 +294,12 @@ Vue 3 补充文档：
 
 ### 1. 服务端
 
-进入 `spring2-plugin`，按模块 README 配置公私钥、路径规则和是否启用 Feign 集成。
+按你的 Spring Boot 版本选择服务端 starter，并按模块 README 配置公私钥、路径规则和是否启用 Feign 集成。
 
 核心文档：
 
 - [spring2-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\spring2-plugin\README.md)
+- [spring3-plugin/README.md](E:\IdeaProject\generic-transfer-encrypt\spring3-plugin\README.md)
 
 ### 2. 浏览器端
 
@@ -335,11 +359,22 @@ Vue 3 端支持：
 
 ### 分模块测试
 
+推荐优先从仓库根目录通过 Maven reactor 跑服务端模块，这样会自动带上 `transfer-encrypt-core`：
+
+```powershell
+mvn "-Dmaven.repo.local=.m2repo" test
+```
+
 `spring2-plugin`
 
 ```powershell
-cd .\spring2-plugin
-mvn "-Dmaven.repo.local=.m2repo" test
+mvn "-Dmaven.repo.local=.m2repo" -pl spring2-plugin -am test
+```
+
+`spring3-plugin`
+
+```powershell
+mvn "-Dmaven.repo.local=.m2repo" -pl spring3-plugin -am test
 ```
 
 `vanilla-js-plugin`
@@ -422,9 +457,8 @@ flutter run
 
 说明：
 
-- 当前落地的 E2E 服务只有 Spring Boot 2 版本
-- Spring Boot 3 版本建议在后续拆出 `spring3-plugin` 后，再补一个并列的 `e2e-demo/server-spring3`
-- 到那时推荐保持同样两类入口：`manual demo` + `automated probe`
+- 当前落地的 E2E 服务包括 Spring Boot 2 `e2e-demo/server` 与 Spring Boot 3 `e2e-demo/server-spring3`
+- 两个服务都保留相同的 Controller、静态页面和自动化集成测试场景
 
 ### 仓库级全局集成脚本
 
@@ -437,13 +471,14 @@ flutter run
 
 默认会尝试执行：
 
-1. `spring2-plugin`: `mvn -Dmaven.repo.local=.m2repo test`
+1. `spring2-plugin`: `mvn -Dmaven.repo.local=.m2repo -pl spring2-plugin -am test`
 2. `vanilla-js-plugin`: `node tests/transfer-encrypt.native.test.js`
 3. `vue3-plugin`: `node tests/transfer-encrypt-vue3.native.test.mjs`
-4. `e2e-demo/server`: `mvn -Dmaven.repo.local=..\..\spring2-plugin\.m2repo test`
-5. `flutter-plugin`: `flutter pub get`
-6. `flutter-plugin`: `flutter test`
-7. `flutter-plugin/example`: `flutter pub get`
+4. `e2e-demo/server`: `mvn -Dmaven.repo.local=.m2repo -pl e2e-demo/server -am test`
+5. `e2e-demo/server-spring3`: `mvn -Dmaven.repo.local=.m2repo -pl e2e-demo/server-spring3 -am test`
+6. `flutter-plugin`: `flutter pub get`
+7. `flutter-plugin`: `flutter test`
+8. `flutter-plugin/example`: `flutter pub get`
 
 执行方式：
 

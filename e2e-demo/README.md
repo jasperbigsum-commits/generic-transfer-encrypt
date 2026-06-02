@@ -3,6 +3,7 @@
 本目录提供一个本地端到端联调示例，目标是把：
 
 - `spring2-plugin`
+- `spring3-plugin`
 - `vanilla-js-plugin`
 - 浏览器端联调页面
 
@@ -11,6 +12,7 @@
 ## 目录
 
 - `server/`: Spring Boot 演示服务，启用了传输层加密插件
+- `server-spring3/`: Spring Boot 3 演示服务，复用同一套页面与测试场景
 
 ## 功能
 
@@ -36,15 +38,14 @@
 
 ## 当前版本边界
 
-当前仓库的 E2E 服务只有：
+当前仓库的 E2E 服务包括：
 
 - `server/`: Spring Boot 2 + `generic-transfer-encrypt-spring2-plugin`
-
-后续如果补 Spring Boot 3 版本，建议目录并列扩展为：
+- `server-spring3/`: Spring Boot 3 + `generic-transfer-encrypt-spring3-plugin`
 
 ```text
 e2e-demo/
-├─ server-spring2/
+├─ server/
 ├─ server-spring3/
 └─ tests/
 ```
@@ -54,15 +55,35 @@ e2e-demo/
 先安装本地 Spring 插件到同一个 Maven 本地仓库：
 
 ```powershell
-cd .\spring2-plugin
 mvn "-Dmaven.repo.local=.m2repo" install
 ```
 
-再启动 demo 服务：
+再启动 Spring Boot 2 demo 服务：
 
 ```powershell
 cd .\e2e-demo\server
-mvn "-Dmaven.repo.local=..\..\spring2-plugin\.m2repo" spring-boot:run
+mvn "-Dmaven.repo.local=..\..\.m2repo" spring-boot:run
+```
+
+或启动 Spring Boot 3 demo 服务：
+
+```powershell
+cd .\e2e-demo\server-spring3
+mvn "-Dmaven.repo.local=..\..\.m2repo" spring-boot:run
+```
+
+## 自动测试
+
+Spring Boot 2 demo：
+
+```powershell
+mvn "-Dmaven.repo.local=.m2repo" -pl e2e-demo/server -am test
+```
+
+Spring Boot 3 demo：
+
+```powershell
+mvn "-Dmaven.repo.local=.m2repo" -pl e2e-demo/server-spring3 -am test
 ```
 
 ## 说明

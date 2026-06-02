@@ -10,12 +10,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.servlet.ServletInputStream;
-import javax.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 
@@ -24,10 +21,9 @@ import org.springframework.util.StringUtils;
  *
  * <p>主要处理：</p>
  * <ul>
- *     <li>请求体读取</li>
- *     <li>Content-Type 判断</li>
- *     <li>query string / parameterMap 互转</li>
- *     <li>文件/二进制响应识别</li>
+     *     <li>Content-Type 判断</li>
+     *     <li>query string / parameterMap 互转</li>
+     *     <li>文件/二进制响应识别</li>
  * </ul>
  */
 public final class TransferWebUtils {
@@ -43,11 +39,6 @@ public final class TransferWebUtils {
             outputStream.write(buffer, 0, bytesRead);
         }
         return outputStream.toByteArray();
-    }
-
-    public static byte[] readBody(final HttpServletRequest request) throws IOException {
-        final ServletInputStream inputStream = request.getInputStream();
-        return toByteArray(inputStream);
     }
 
     public static boolean isJsonContentType(final String contentType) {
@@ -120,16 +111,6 @@ public final class TransferWebUtils {
             }
         }
         return builder.toString();
-    }
-
-    public static Map<String, String[]> extractParameters(final HttpServletRequest request) {
-        final Map<String, String[]> parameters = new LinkedHashMap<String, String[]>();
-        final Enumeration<String> names = request.getParameterNames();
-        while (names.hasMoreElements()) {
-            final String name = names.nextElement();
-            parameters.put(name, request.getParameterValues(name));
-        }
-        return parameters;
     }
 
     private static boolean containsContentType(final String contentType, final String candidate) {
