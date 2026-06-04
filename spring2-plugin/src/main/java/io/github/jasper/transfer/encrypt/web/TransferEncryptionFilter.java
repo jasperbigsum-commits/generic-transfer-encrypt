@@ -82,6 +82,11 @@ public class TransferEncryptionFilter extends OncePerRequestFilter {
 
     private TransferWebExchangeProcessor.RequestResolution resolveRequest(final HttpServletRequest request)
             throws IOException {
+        final TransferWebExchangeProcessor.RequestBodyReadPlan readPlan =
+                exchangeProcessor.planRequestBodyRead(request.getContentType());
+        if (!readPlan.shouldReadBody()) {
+            return readPlan.getPassthroughResolution();
+        }
         final byte[] originalBody = TransferServletWebUtils.readBody(request);
         return exchangeProcessor.resolveRequest(new TransferWebExchangeProcessor.RequestInput(request.getMethod(),
                 request.getContentType(), request.getQueryString(), originalBody,

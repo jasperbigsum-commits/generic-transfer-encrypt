@@ -47,8 +47,9 @@ public class TransferWebExchangeProcessor {
      */
     public RequestResolution resolveRequest(final RequestInput input) {
         final String contentType = input.getContentType();
-        if (TransferWebUtils.isMultipartContentType(contentType)) {
-            return RequestResolution.passthrough(new TransferRequestContext(true, false, true, null));
+        final RequestBodyReadPlan readPlan = planRequestBodyRead(contentType);
+        if (!readPlan.shouldReadBody()) {
+            return readPlan.getPassthroughResolution();
         }
 
         final byte[] originalBody = input.getOriginalBody();
@@ -82,6 +83,20 @@ public class TransferWebExchangeProcessor {
         }
         return RequestResolution.wrapped(originalBody, originalParameters, input.getQueryString(), contentType,
                 new TransferRequestContext(true, false, false, null));
+    }
+
+    /**
+     * Plans whether a concrete servlet adapter may safely read the request body.
+     *
+     * @param contentType HTTP request content type
+     * @return body read plan for the adapter
+     */
+    public RequestBodyReadPlan planRequestBodyRead(final String contentType) {
+        if (TransferWebUtils.isMultipartContentType(contentType)) {
+            return RequestBodyReadPlan.skip(
+                    RequestResolution.passthrough(new TransferRequestContext(true, false, true, null)));
+        }
+        return RequestBodyReadPlan.read();
     }
 
     /**
@@ -301,6 +316,37 @@ public class TransferWebExchangeProcessor {
 
         public String getRequestMd5() {
             return requestMd5;
+        }
+    }
+
+    /**
+     * Servlet-neutral body-read plan for adapters that must avoid consuming one-shot streams.
+     */
+    public static final class RequestBodyReadPlan {
+
+        private final boolean readBody;
+
+        private final RequestResolution passthroughResolution;
+
+        private RequestBodyReadPlan(final boolean readBody, final RequestResolution passthroughResolution) {
+            this.readBody = readBody;
+            this.passthroughResolution = passthroughResolution;
+        }
+
+        private static RequestBodyReadPlan read() {
+            return new RequestBodyReadPlan(true, null);
+        }
+
+        private static RequestBodyReadPlan skip(final RequestResolution passthroughResolution) {
+            return new RequestBodyReadPlan(false, passthroughResolution);
+        }
+
+        public boolean shouldReadBody() {
+            return readBody;
+        }
+
+        public RequestResolution getPassthroughResolution() {
+            return passthroughResolution;
         }
     }
 

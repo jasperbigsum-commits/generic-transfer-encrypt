@@ -42,6 +42,20 @@ class TransferWebExchangeProcessorTest {
         Assertions.assertTrue(wrapper.containsKey("transferPayload"));
     }
 
+    @Test
+    void shouldPlanMultipartRequestWithoutReadingBody() {
+        final TransferEnvelopeCodec codec = new TransferEnvelopeCodec(createCryptoService());
+        final TransferWebExchangeProcessor processor = new TransferWebExchangeProcessor(objectMapper, codec);
+
+        final TransferWebExchangeProcessor.RequestBodyReadPlan plan =
+                processor.planRequestBodyRead(MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=demo");
+
+        Assertions.assertFalse(plan.shouldReadBody());
+        Assertions.assertNotNull(plan.getPassthroughResolution());
+        Assertions.assertFalse(plan.getPassthroughResolution().isWrapRequest());
+        Assertions.assertTrue(plan.getPassthroughResolution().getContext().isFileRequest());
+    }
+
     private DefaultTransferCryptoService createCryptoService() {
         final TransferEncryptProperties properties = new TransferEncryptProperties();
         properties.setPrivateKey(KEY_PAIR.getPrivateKeyHex());

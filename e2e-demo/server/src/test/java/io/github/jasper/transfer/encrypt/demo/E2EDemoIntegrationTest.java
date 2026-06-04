@@ -6,6 +6,8 @@ import io.github.jasper.transfer.encrypt.core.TransferConstants;
 import io.github.jasper.transfer.encrypt.core.TransferEnvelopeCodec;
 import io.github.jasper.transfer.encrypt.crypto.DefaultTransferCryptoService;
 import io.github.jasper.transfer.encrypt.model.TransferEnvelope;
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -14,10 +16,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -26,7 +31,7 @@ import org.springframework.test.context.DynamicPropertySource;
         webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 class E2EDemoIntegrationTest {
 
-    private static final int TEST_PORT = Integer.getInteger("e2e.demo.test.port", 48081);
+    private static final int TEST_PORT = resolveTestPort();
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -158,11 +163,60 @@ class E2EDemoIntegrationTest {
         Assertions.assertEquals(Boolean.TRUE, downstream.get("encryptedRequest"));
     }
 
+    @Test
+    void shouldUploadMultipartFileThroughEmbeddedServer() {
+        final ResponseEntity<Map> response = restTemplate.postForEntity(
+                baseUrl("/api/upload"),
+                multipartEntity("file", "demo.txt", "upload-content".getBytes(StandardCharsets.UTF_8)),
+                Map.class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        Assertions.assertEquals("upload", response.getBody().get("mode"));
+        Assertions.assertEquals("demo.txt", response.getBody().get("fileName"));
+        Assertions.assertEquals(14, response.getBody().get("size"));
+    }
+
+    @Test
+    void shouldUploadMultipleMultipartFilesThroughEmbeddedServer() {
+        final MultiValueMap<String, Object> body = new LinkedMultiValueMap<String, Object>();
+        body.add("files", namedBytes("demo1.txt", "upload-content-1".getBytes(StandardCharsets.UTF_8)));
+        body.add("files", namedBytes("demo2.txt", "upload-content-2".getBytes(StandardCharsets.UTF_8)));
+
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        final ResponseEntity<Map> response = restTemplate.postForEntity(
+                baseUrl("/api/upload/multi"),
+                new HttpEntity<MultiValueMap<String, Object>>(body, headers),
+                Map.class);
+
+        Assertions.assertEquals(200, response.getStatusCodeValue());
+        Assertions.assertEquals("upload-multi", response.getBody().get("mode"));
+        Assertions.assertEquals(2, response.getBody().get("count"));
+    }
+
 
     private HttpEntity<byte[]> jsonEntity(final byte[] body) {
         final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return new HttpEntity<>(body, headers);
+    }
+
+    private HttpEntity<MultiValueMap<String, Object>> multipartEntity(final String fieldName, final String fileName,
+            final byte[] content) {
+        final MultiValueMap<String, Object> body = new LinkedMultiValueMap<String, Object>();
+        body.add(fieldName, namedBytes(fileName, content));
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return new HttpEntity<MultiValueMap<String, Object>>(body, headers);
+    }
+
+    private ByteArrayResource namedBytes(final String fileName, final byte[] content) {
+        return new ByteArrayResource(content) {
+            @Override
+            public String getFilename() {
+                return fileName;
+            }
+        };
     }
 
     private Map<?, ?> decryptJsonResponse(final byte[] responseBody, final String sm4Key) throws Exception {
@@ -200,5 +254,18 @@ class E2EDemoIntegrationTest {
 
     private String baseUrl(final String path) {
         return "http://localhost:" + TEST_PORT + path;
+    }
+
+    private static int resolveTestPort() {
+        final String configuredPort = System.getProperty("e2e.demo.test.port");
+        if (configuredPort != null && !configuredPort.trim().isEmpty()) {
+            return Integer.parseInt(configuredPort);
+        }
+        try (ServerSocket socket = new ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        } catch (final IOException ex) {
+            return 48081;
+        }
     }
 }
